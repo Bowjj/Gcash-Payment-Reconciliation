@@ -1,0 +1,44 @@
+F2: CODE QUALITY REVIEW
+Date: 2026-09-21
+Verdict: APPROVE
+
+COMMANDS VERIFIED
+- corepack pnpm typecheck: exit 0 (strict mode, noUncheckedIndexedAccess, exactOptionalPropertyTypes)
+- corepack pnpm lint: exit 0 (max-warnings=0, ban-ts-comment, no-explicit-any, no-non-null-assertion)
+- corepack pnpm test: exit 0 (5 tests across 2 files)
+
+STRICT TYPESCRIPT
+- tsconfig.json: strict: true, noUncheckedIndexedAccess, exactOptionalPropertyTypes, noImplicitReturns, noUnusedLocals, noUnusedParameters, noFallthroughCasesInSwitch, noPropertyAccessFromIndexSignature
+- Zero @ts-ignore, @ts-expect-error, as any, or : any in source
+
+SERVER/CLIENT BOUNDARIES
+- "use client" only on interactive components (login-form, auth-sidebar, logout-button, error)
+- Server components for layouts and data-fetching pages
+- No module-scoped server client
+
+DEPENDENCY NECESSITY
+- @supabase/supabase-js: required for auth client
+- @supabase/ssr: required for cookie handling
+- zod: required for environment validation
+- vitest/testing-library/playwright: required for test harness
+- No unused direct dependencies
+
+ERROR HANDLING
+- Login: generic "Invalid email or password" (no user enumeration)
+- Environment: safe validation errors (no secret leak)
+- Auth: redirect to /login on missing session
+- Error boundary: retry button, no stack trace disclosure
+
+SECURITY
+- No service_role or SUPABASE_SECRET_KEY in source
+- No browser import of server-only modules
+- Open-redirect protection in login action
+- RLS enforced at database level
+- Security definer functions with search_path=''
+
+SQL/RLS SAFETY
+- private schema for helper functions
+- Fully qualified names in all functions
+- search_path='' on all security definer functions
+- No recursive policy evaluation
+- Explicit GRANT/REVOKE on all tables

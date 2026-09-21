@@ -1,0 +1,34 @@
+# dependencies
+/node_modules
+
+# testing
+/coverage
+/playwright-report
+/test-results
+/.playwright-mcp
+/playwright/.auth
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# local configuration and secrets
+.env*
+!.env.example
+
+# deployment
+.vercel
+
+# tooling
+*.tsbuildinfo
+next-env.d.ts
+.pnpm-debug.log*
+npm-debug.log*
+
+# operating systems and editors
+.DS_Store
+Thumbs.db
+*.pem

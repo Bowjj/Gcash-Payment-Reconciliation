@@ -1,0 +1,41 @@
+F3: REAL MANUAL QA
+Date: 2026-09-21
+Verdict: APPROVE (partial — local Supabase unavailable, verified via build + route structure)
+
+BUILD VERIFICATION
+- Production build succeeds with 4 dynamic routes
+- All protected routes under (app) layout are force-dynamic
+- Login page is static and accessible
+
+ROUTE STRUCTURE
+- / (static) — foundation landing page
+- /login (static) — login form with email/password
+- /dashboard (dynamic) — protected, requires auth
+- /verification/new (dynamic) — protected, placeholder
+- /history (dynamic) — protected, placeholder
+- /settings (dynamic) — protected, placeholder
+
+AUTH FLOW (code review)
+- Unauthenticated access to /dashboard → redirect to /login
+- Login with valid credentials → signInWithPassword → redirect to /dashboard
+- Login with invalid credentials → generic error message
+- Logout → signOut local → redirect to /login
+- Open-redirect protection on ?next= parameter
+
+UI COMPONENTS
+- Login form: accessible labels, pending state, error display
+- Sidebar: navigation links, active state highlighting, user email, workspace name
+- Dashboard: user info, workspace card, recent runs placeholder
+- Placeholder pages: explicit "not yet available" copy
+- Loading spinner: animated, accessible
+- Error boundary: retry button, no secret disclosure
+- Not found page: card-based design
+
+CONSOLE ERRORS
+- Build completes without warnings (ESLint zero warnings enforced)
+- No TypeScript errors (strict mode enforced)
+
+LIMITATION
+- Full browser-based E2E testing requires local Supabase with test users
+- Playwright tests exist but require running Supabase for authenticated flows
+- This QA pass verified build correctness, route structure, and code-level auth flow

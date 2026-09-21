@@ -1,0 +1,45 @@
+TASK 4 - TEST HARNESS EVIDENCE
+Date: 2026-09-21
+Scope: Plan checkbox 4 only
+
+CONFIGURATION
+- Vitest 5.0.1 with @vitejs/plugin-react, vite-tsconfig-paths, jsdom environment
+- Playwright 1.63.0 with Chromium project, production build server, trace/screenshot on failure
+- Testing Library: @testing-library/react 16.3.3, @testing-library/dom 10.4.2, @testing-library/jest-dom 7.0.1
+- Setup: tests/vitest.setup.ts with jest-dom matchers and automatic cleanup
+
+TEST FILES
+- tests/unit/button.test.tsx: Meaningful smoke test of Button component disabled state
+- tests/e2e/home.spec.ts: Deterministic Playwright test checking public page heading
+- tests/vitest.setup.ts: Setup file with @testing-library/jest-dom/vitest and afterEach cleanup
+
+ACCEPTANCE COMMANDS AND OUTPUT
+Command: corepack pnpm test
+Exit: 0
+Output: 1 passed (button.test.tsx)
+
+Command: corepack pnpm exec playwright test --list
+Exit: 0
+Output: 1 test discovered (home.spec.ts)
+
+Command: corepack pnpm typecheck
+Exit: 0
+
+Command: corepack pnpm lint
+Exit: 0
+
+Command: corepack pnpm build
+Exit: 0
+Output: 4 static pages generated
+
+SCOPE CHECKS
+- No Supabase, auth, database, dashboard, or business-feature code added
+- No fake tests, skip tests, or assertions without real behavior
+- No tests inside async Server Components
+- No committed Playwright storage state or credentials
+- All direct dependencies justified: vitest, @vitejs/plugin-react, vite-tsconfig-paths, jsdom, @testing-library/*, @playwright/test
+- No unused dependencies introduced
+
+CLEANUP
+- No running servers, processes, or ports
+- Build artifacts cleaned after verification

@@ -1,0 +1,44 @@
+TASK 3 - SUPABASE CLIENTS AND PROXY EVIDENCE
+Date: 2026-09-21
+Scope: Plan checkbox 3 only
+
+FILES CREATED/MODIFIED
+- package.json: added @supabase/supabase-js 2.116.0, @supabase/ssr 0.12.7, zod 4.6.5
+- pnpm-lock.yaml: updated lockfile
+- src/lib/supabase/environment.ts: Zod-validated public environment parsing
+- src/lib/supabase/client.ts: browser client via createBrowserClient
+- src/lib/supabase/server.ts: request-scoped server client via createServerClient
+- src/lib/supabase/proxy.ts: session refresh utility for Next.js 16 proxy.ts
+- proxy.ts: root entry point routing to updateSession
+- tests/unit/supabase-environment.test.ts: 4 focused environment tests
+
+ACCEPTANCE COMMANDS AND OUTPUT
+Command: corepack pnpm test
+Exit: 0 (5 passed across 2 files)
+
+Command: corepack pnpm typecheck
+Exit: 0
+
+Command: corepack pnpm lint
+Exit: 0
+
+Command: corepack pnpm build
+Exit: 0 (4 static routes)
+
+SECURITY AUDIT
+- No service_role, SUPABASE_SECRET_KEY, or browser import of server modules found
+- Server client is request-scoped (new instance per request via cookies())
+- Environment validation throws on missing/invalid URL or key (safe error, no secret leak)
+- Proxy preserves request and response cookies from Supabase auth operations
+- No untrusted getSession() usage; getClaims() used for session refresh
+
+DEPENDENCY AUDIT
+- @supabase/supabase-js: core Supabase client library (required)
+- @supabase/ssr: SSR cookie handling for Next.js (required)
+- zod: environment validation (required)
+- No unused dependencies introduced
+
+SCOPE CHECKS
+- No auth UI, login/logout, or route protection (Todo 5)
+- No SQL schema or migrations (Todo 2)
+- No test harness configuration changes (Todo 4)
