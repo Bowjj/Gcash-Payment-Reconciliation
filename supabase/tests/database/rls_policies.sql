@@ -1,160 +1,246 @@
--- pgTAP policy tests for Sprint 1 schema
--- Run with: supabase test db
--- Requires pgTAP extension
-
 begin;
-select plan(12);
+select plan(26);
 
--- ============================================================
--- Setup: create test users and workspaces
--- ============================================================
-
--- Create two test users via auth.users inserts
 insert into auth.users (id, email, encrypted_password, email_confirmed_at)
 values
   ('a0000000-0000-0000-0000-000000000001', 'alice@test.com', crypt('password1', gen_salt('bf')), now()),
-  ('b0000000-0000-0000-0000-000000000002', 'bob@test.com', crypt('password2', gen_salt('bf')), now());
+  ('b0000000-0000-0000-0000-000000000002', 'bob@test.com', crypt('password2', gen_salt('bf')), now()),
+  ('c0000000-0000-0000-0000-000000000003', 'charlie@test.com', crypt('password3', gen_salt('bf')), now());
 
--- Create workspaces via the RPC (tests the create_business function)
-select public.create_business('Business A');
-select public.create_business('Business B');
+insert into public.businesses (id, name, created_by)
+values
+  ('a1000000-0000-0000-0000-000000000001', 'Business A', 'a0000000-0000-0000-0000-000000000001'),
+  ('b1000000-0000-0000-0000-000000000002', 'Business B', 'b0000000-0000-0000-0000-000000000002');
 
--- Add Bob as member of Business B (he is already owner of B from create_business,
--- so let's make Alice a member of Business B for cross-business testing)
 insert into public.business_members (business_id, user_id, role)
-select id, 'a0000000-0000-0000-0000-000000000001', 'member'
-from public.businesses where name = 'Business B';
+values
+  ('a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'owner'),
+  ('b1000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000002', 'owner');
 
--- ============================================================
--- 1. Anonymous access denied
--- ============================================================
+insert into public.verification_runs (id, business_id, requested_by, status)
+values
+  ('a2000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'queued'),
+  ('b2000000-0000-0000-0000-000000000002', 'b1000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000002', 'queued');
 
--- Reset role to anon
 set role anon;
-
 select throws_ok(
   $$select id from public.businesses limit 1$$,
   42501,
-  'anonymous user denied select on businesses'
+  null,
+  'anonymous user denied businesses'
 );
-
 select throws_ok(
-  $$select business_id from public.business_members limit 1$$,
+  $$select id from public.payments limit 1$$,
   42501,
-  'anonymous user denied select on business_members'
+  null,
+  'anonymous user denied payments'
 );
-
 select throws_ok(
-  $$select id from public.verification_runs limit 1$$,
+  $$select id from public.gcash_transactions limit 1$$,
   42501,
-  'anonymous user denied select on verification_runs'
+  null,
+  'anonymous user denied GCash transactions'
 );
-
 reset role;
 
--- ============================================================
--- 2. Authenticated non-member denied access to Business A
--- ============================================================
+set role authenticated;
+set request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000001';
+select is(
+  (select count(*) from public.businesses where name = 'Business A'),
+  1::bigint,
+  'Alice reads Business A'
+);
+select lives_ok(
+  $$insert into public.payments (
+      id, verification_run_id, business_id, imported_by, customer, amount, method, row_index
+    ) values (
+      'a3000000-0000-0000-0000-000000000001',
+      'a2000000-0000-0000-0000-000000000001',
+      'a1000000-0000-0000-0000-000000000001',
+      'a0000000-0000-0000-0000-000000000001',
+      'Alice Customer', 1000.00, 'GCASH', 2
+    )$$,
+  'same-business payment association succeeds'
+);
+select lives_ok(
+  $$insert into public.gcash_transactions (
+      id, verification_run_id, business_id, imported_by, reference_number,
+      amount, direction, row_index, reference_occurrence_count
+    ) values (
+      'a4000000-0000-0000-0000-000000000001',
+      'a2000000-0000-0000-0000-000000000001',
+      'a1000000-0000-0000-0000-000000000001',
+      'a0000000-0000-0000-0000-000000000001',
+      '0000203966985', 1000.00, 'incoming', 2, 1
+    )$$,
+  'same-business GCash association succeeds'
+);
+select throws_ok(
+  $$insert into public.payments (
+      verification_run_id, business_id, imported_by, customer, amount, method, row_index
+    ) values (
+      'b2000000-0000-0000-0000-000000000002',
+      'a1000000-0000-0000-0000-000000000001',
+      'a0000000-0000-0000-0000-000000000001',
+      'Cross Tenant', 10.00, 'GCASH', 3
+    )$$,
+  23503,
+  null,
+  'cross-business payment/run association denied'
+);
+select throws_ok(
+  $$insert into public.gcash_transactions (
+      verification_run_id, business_id, imported_by, reference_number,
+      amount, direction, row_index
+    ) values (
+      'b2000000-0000-0000-0000-000000000002',
+      'a1000000-0000-0000-0000-000000000001',
+      'a0000000-0000-0000-0000-000000000001',
+      'CROSS', 10.00, 'unknown', 3
+    )$$,
+  23503,
+  null,
+  'cross-business GCash/run association denied'
+);
+select throws_ok(
+  $$update public.payments
+    set verification_run_id = 'b2000000-0000-0000-0000-000000000002'
+    where id = 'a3000000-0000-0000-0000-000000000001'$$,
+  23503,
+  null,
+  'payment cannot be moved to another business run'
+);
+select throws_ok(
+  $$update public.gcash_transactions
+    set verification_run_id = 'b2000000-0000-0000-0000-000000000002'
+    where id = 'a4000000-0000-0000-0000-000000000001'$$,
+  23503,
+  null,
+  'GCash transaction cannot be moved to another business run'
+);
+select throws_ok(
+  $$select public.create_payment_import(
+      'a1000000-0000-0000-0000-000000000001',
+      '[{"customer":"Rollback Test","amount":"10.00","method":"INVALID","row_index":4,"raw_data":{}}]'::jsonb
+    )$$,
+  '22P02',
+  null,
+  'invalid atomic payment import fails'
+);
+select is(
+  (select count(*) from public.verification_runs where business_id = 'a1000000-0000-0000-0000-000000000001'),
+  1::bigint,
+  'failed payment import rolls back its verification run'
+);
+select is(
+  (select count(*) from public.payments where business_id = 'a1000000-0000-0000-0000-000000000001'),
+  1::bigint,
+  'failed payment import leaves no partial payments'
+);
+reset role;
 
 set role authenticated;
 set request.jwt.claim.sub = 'b0000000-0000-0000-0000-000000000002';
-
--- Bob should NOT see Business A
 select is(
-  (select count(*) from public.businesses where name = 'Business A'),
+  (select count(*) from public.verification_runs where business_id = 'a1000000-0000-0000-0000-000000000001'),
   0::bigint,
-  'non-member Bob cannot see Business A'
+  'Bob cannot read Business A verification runs'
 );
-
-reset role;
-
--- ============================================================
--- 3. Member can read own business data
--- ============================================================
-
-set role authenticated;
-set request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000001';
-
--- Alice is owner of A and member of B
 select is(
-  (select count(*) from public.businesses where name in ('Business A', 'Business B')),
-  2::bigint,
-  'Alice can see both her owned and member businesses'
+  (select count(*) from public.payments where business_id = 'a1000000-0000-0000-0000-000000000001'),
+  0::bigint,
+  'Bob cannot read Business A payments'
 );
-
-reset role;
-
--- ============================================================
--- 4. Owner can delete business
--- ============================================================
-
-set role authenticated;
-set request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000001';
-
--- Alice owns Business A, should be able to delete it
-select lives_ok(
-  $$delete from public.businesses where name = 'Business A'$$,
-  'owner can delete own business'
+select is(
+  (select count(*) from public.gcash_transactions where business_id = 'a1000000-0000-0000-0000-000000000001'),
+  0::bigint,
+  'Bob cannot read Business A GCash transactions'
 );
-
+select is_empty(
+  $$update public.payments set notes = 'unauthorized'
+    where id = 'a3000000-0000-0000-0000-000000000001' returning id$$,
+  'Bob cannot modify Business A payments'
+);
+select is_empty(
+  $$delete from public.gcash_transactions
+    where id = 'a4000000-0000-0000-0000-000000000001' returning id$$,
+  'Bob cannot delete Business A GCash transactions'
+);
 reset role;
-
--- ============================================================
--- 5. create_business creates both business and owner membership atomically
--- ============================================================
 
 set role authenticated;
 set request.jwt.claim.sub = 'c0000000-0000-0000-0000-000000000003';
-
--- Insert a third user
-insert into auth.users (id, email, encrypted_password, email_confirmed_at)
-values ('c0000000-0000-0000-0000-000000000003', 'charlie@test.com', crypt('password3', gen_salt('bf')), now());
-
 select lives_ok(
   $$select public.create_business('Business C')$$,
-  'create_business succeeds for authenticated user'
+  'authenticated user can create a business'
 );
-
--- Verify both business and membership were created
-select is(
-  (select count(*) from public.businesses where name = 'Business C'),
-  1::bigint,
-  'create_business created the business'
-);
-
 select is(
   (select count(*) from public.business_members
-   where business_id = (select id from public.businesses where name = 'Business C')
-     and user_id = 'c0000000-0000-0000-0000-000000000003'
+   where user_id = 'c0000000-0000-0000-0000-000000000003'
      and role = 'owner'),
   1::bigint,
-  'create_business created owner membership'
+  'create_business creates owner membership'
 );
-
 reset role;
 
--- ============================================================
--- 6. Verification run constraints
--- ============================================================
+-- ----- Sprint 1 remediation: multi-workspace isolation -----
 
 set role authenticated;
-set request.jwt.claim.sub = 'c0000000-0000-0000-0000-000000000003';
-
--- Insert a queued run
-insert into public.verification_runs (business_id, requested_by, status)
-select id, 'c0000000-0000-0000-0000-000000000003', 'queued'
-from public.businesses where name = 'Business C';
-
--- Try to insert a completed run without started_at — should fail
+set request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000001';
 select throws_ok(
-  $$insert into public.verification_runs (business_id, requested_by, status, completed_at)
-    select id, 'c0000000-0000-0000-0000-000000000003', 'succeeded', now()
-    from public.businesses where name = 'Business C'$$,
-  23514,
-  'cannot insert succeeded run without started_at'
+  $$insert into public.verification_runs (business_id, requested_by, status)
+    values ('b1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'queued')$$,
+  42501,
+  null,
+  'Alice cannot create a verification run in Bob business'
 );
-
+select throws_ok(
+  $$insert into public.payments (
+      verification_run_id, business_id, imported_by, customer, amount, method, row_index
+    ) values (
+      'b2000000-0000-0000-0000-000000000002',
+      'b1000000-0000-0000-0000-000000000002',
+      'a0000000-0000-0000-0000-000000000001',
+      'Cross Tenant', 10.00, 'GCASH', 4
+    )$$,
+  42501,
+  null,
+  'Alice cannot import payments into Bob business'
+);
+select throws_ok(
+  $$insert into public.gcash_transactions (
+      verification_run_id, business_id, imported_by, reference_number,
+      amount, direction, row_index
+    ) values (
+      'b2000000-0000-0000-0000-000000000002',
+      'b1000000-0000-0000-0000-000000000002',
+      'a0000000-0000-0000-0000-000000000001',
+      'SNEAKY', 10.00, 'unknown', 4
+    )$$,
+  42501,
+  null,
+  'Alice cannot import GCash into Bob business'
+);
+select throws_ok(
+  $$select public.create_payment_import(
+      'b1000000-0000-0000-0000-000000000002',
+      '[{"customer":"Sneaky","amount":"10.00","method":"GCASH","row_index":5,"raw_data":{}}]'::jsonb
+    )$$,
+  42501,
+  null,
+  'Alice cannot import payments into Bob business via RPC'
+);
 reset role;
+select is(
+  (select count(*) from public.verification_runs where business_id = 'b1000000-0000-0000-0000-000000000002'),
+  1::bigint,
+  'Alice import attempt added no verification run to Bob business'
+);
+select is(
+  (select count(*) from public.payments where business_id = 'b1000000-0000-0000-0000-000000000002'),
+  0::bigint,
+  'Alice import attempt added no payments to Bob business'
+);
 
 select * from finish();
 rollback;

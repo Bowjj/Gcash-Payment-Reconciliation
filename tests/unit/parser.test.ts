@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 
@@ -53,6 +54,33 @@ describe("parseWorkbook", () => {
 
     expect(result.rows[0]?.referenceNumber).toBe("0045276500984");
     expect(result.rows[0]?.referenceNumber).not.toBe("45276500984");
+  });
+
+  it("preserves leading zeros from an Excel number format", () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([
+      validHeaders,
+      ["John Dale", "", "Sep 2026", "1000", "gcash", 45276500984, "2026-09-21", "", "", "", "", ""],
+    ]);
+    const referenceCell = ws["F2"];
+    if (referenceCell) referenceCell.z = "0000000000000";
+    XLSX.utils.book_append_sheet(wb, ws, "Payments");
+
+    const result = parseWorkbook(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+
+    expect(result.rows[0]?.referenceNumber).toBe("0045276500984");
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it("warns when a numeric reference has no leading-zero metadata", () => {
+    const buffer = createWorkbook(validHeaders, [
+      ["John Dale", "", "Sep 2026", "1000", "gcash", 45276500984, "2026-09-21", "", "", "", "", ""],
+    ]);
+
+    const result = parseWorkbook(buffer);
+
+    expect(result.rows[0]?.referenceNumber).toBe("45276500984");
+    expect(result.warnings[0]?.field).toBe("referenceNumber");
   });
 
   it("handles reordered columns", () => {

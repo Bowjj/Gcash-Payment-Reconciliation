@@ -1,21 +1,13 @@
 import * as XLSX from "xlsx";
 
-const EXPECTED_HEADERS = [
-  "customer",
-  "account",
-  "billing period",
-  "amount",
-  "method",
-  "reference #",
-  "payment date",
-  "notes",
-  "paid by",
-  "received by",
-  "photo",
-  "created at",
-] as const;
+import {
+  buildColumnMap,
+  cellToString,
+  extractRowData,
+  resolveReference,
+} from "./parser-helpers";
 
-type HeaderKey = (typeof EXPECTED_HEADERS)[number];
+export type { HeaderKey, ParseError } from "./parser-helpers";
 
 export interface ParsedRow {
   readonly rowIndex: number;
@@ -34,135 +26,36 @@ export interface ParsedRow {
   readonly raw: Record<string, unknown>;
 }
 
-export interface ParseError {
-  readonly rowIndex: number;
-  readonly field: string;
-  readonly message: string;
-}
-
 export interface ParseResult {
   readonly rows: readonly ParsedRow[];
-  readonly errors: readonly ParseError[];
+  readonly errors: readonly { rowIndex: number; field: string; message: string }[];
   readonly headers: readonly string[];
   readonly totalRows: number;
   readonly validCount: number;
   readonly errorCount: number;
   readonly missingHeaders: readonly string[];
+  readonly warnings: readonly { rowIndex: number; field: string; message: string }[];
 }
 
-function normalizeHeader(header: string): string {
-  return header.toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-function buildColumnMap(
-  rawHeaders: readonly string[],
-): { map: Record<number, HeaderKey>; missing: string[] } {
-  const normalized = rawHeaders.map((h) => normalizeHeader(h));
-  const map: Record<number, HeaderKey> = {};
-  const missing: string[] = [];
-
-  for (const expected of EXPECTED_HEADERS) {
-    const idx = normalized.indexOf(expected);
-    if (idx === -1) {
-      missing.push(expected);
-    } else {
-      map[idx] = expected;
-    }
-  }
-
-  return { map, missing };
-}
-
-function cellToString(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number") return String(value);
-  if (value instanceof Date) {
-    return value.toISOString().split("T")[0] ?? "";
-  }
-  return String(value).trim();
-}
-
-interface RowData {
-  customer: string;
-  account: string;
-  billingPeriod: string;
-  amount: string;
-  method: string;
-  referenceNumber: string;
-  paymentDate: string;
-  notes: string;
-  paidBy: string;
-  receivedBy: string;
-  photo: string;
-  createdAt: string;
-}
-
-function extractRowData(
-  rawRow: unknown[],
-  columnMap: Record<number, HeaderKey>,
-): RowData {
-  const result: RowData = {
-    customer: "",
-    account: "",
-    billingPeriod: "",
-    amount: "",
-    method: "",
-    referenceNumber: "",
-    paymentDate: "",
-    notes: "",
-    paidBy: "",
-    receivedBy: "",
-    photo: "",
-    createdAt: "",
+function emptyResult(
+  error: string,
+  extra?: {
+    headers?: readonly string[];
+    missingHeaders?: readonly string[];
+    field?: string;
+  },
+): ParseResult {
+  const errorField = extra?.field ?? "sheet";
+  return {
+    rows: [],
+    errors: [{ rowIndex: 0, field: errorField, message: error }],
+    headers: extra?.headers ?? [],
+    totalRows: 0,
+    validCount: 0,
+    errorCount: 1,
+    missingHeaders: extra?.missingHeaders ?? [],
+    warnings: [],
   };
-
-  for (const [colStr, headerKey] of Object.entries(columnMap)) {
-    const colIdx = Number(colStr);
-    const value = rawRow[colIdx];
-    const strValue = cellToString(value);
-
-    switch (headerKey) {
-      case "customer":
-        result.customer = strValue;
-        break;
-      case "account":
-        result.account = strValue;
-        break;
-      case "billing period":
-        result.billingPeriod = strValue;
-        break;
-      case "amount":
-        result.amount = strValue;
-        break;
-      case "method":
-        result.method = strValue;
-        break;
-      case "reference #":
-        result.referenceNumber = strValue;
-        break;
-      case "payment date":
-        result.paymentDate = strValue;
-        break;
-      case "notes":
-        result.notes = strValue;
-        break;
-      case "paid by":
-        result.paidBy = strValue;
-        break;
-      case "received by":
-        result.receivedBy = strValue;
-        break;
-      case "photo":
-        result.photo = strValue;
-        break;
-      case "created at":
-        result.createdAt = strValue;
-        break;
-    }
-  }
-
-  return result;
 }
 
 export function parseWorkbook(buffer: Buffer): ParseResult {
@@ -175,102 +68,82 @@ export function parseWorkbook(buffer: Buffer): ParseResult {
   });
 
   const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
-    return {
-      rows: [],
-      errors: [
-        { rowIndex: 0, field: "sheet", message: "Workbook has no sheets" },
-      ],
-      headers: [],
-      totalRows: 0,
-      validCount: 0,
-      errorCount: 1,
-      missingHeaders: [],
-    };
-  }
+  if (!sheetName) return emptyResult("Workbook has no sheets");
 
   const sheet = workbook.Sheets[sheetName];
-  if (!sheet) {
-    return {
-      rows: [],
-      errors: [{ rowIndex: 0, field: "sheet", message: "Sheet is empty" }],
-      headers: [],
-      totalRows: 0,
-      validCount: 0,
-      errorCount: 1,
-      missingHeaders: [],
-    };
-  }
+  if (!sheet) return emptyResult("Sheet is empty");
 
-  const allRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+  const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
     raw: true,
     defval: "",
   });
+  const formattedRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    raw: false,
+    defval: "",
+  });
 
-  if (allRows.length === 0) {
-    return {
-      rows: [],
-      errors: [{ rowIndex: 0, field: "sheet", message: "Sheet is empty" }],
-      headers: [],
-      totalRows: 0,
-      validCount: 0,
-      errorCount: 1,
-      missingHeaders: [],
-    };
-  }
+  if (rawRows.length === 0) return emptyResult("Sheet is empty");
 
-  const headerRow = allRows[0];
-  if (!headerRow) {
-    return {
-      rows: [],
-      errors: [
-        { rowIndex: 0, field: "headers", message: "No header row found" },
-      ],
-      headers: [],
-      totalRows: 0,
-      validCount: 0,
-      errorCount: 1,
-      missingHeaders: [],
-    };
-  }
+  const headerRow = formattedRows[0];
+  if (!headerRow) return emptyResult("No header row found", { field: "headers" });
 
   const rawHeaders = headerRow.map(cellToString);
   const { map: columnMap, missing: missingHeaders } = buildColumnMap(rawHeaders);
 
   if (missingHeaders.length === rawHeaders.length) {
-    return {
-      rows: [],
-      errors: [
-        {
-          rowIndex: 0,
-          field: "headers",
-          message: `No expected headers found. Got: ${rawHeaders.join(", ")}`,
-        },
-      ],
-      headers: rawHeaders,
-      totalRows: 0,
-      validCount: 0,
-      errorCount: 1,
-      missingHeaders,
-    };
+    return emptyResult(
+      `No expected headers found. Got: ${rawHeaders.join(", ")}`,
+      { field: "headers", headers: rawHeaders, missingHeaders },
+    );
   }
 
-  const dataRows = allRows.slice(1);
+  const dataRows = rawRows.slice(1);
+  const formattedDataRows = formattedRows.slice(1);
   const rows: ParsedRow[] = [];
-  const errors: ParseError[] = [];
+  const errors: { rowIndex: number; field: string; message: string }[] = [];
+  const warnings: { rowIndex: number; field: string; message: string }[] = [];
+  const referenceColumn = Object.entries(columnMap).find(
+    ([, header]) => header === "reference #",
+  );
 
   for (let i = 0; i < dataRows.length; i++) {
     const rawRow = dataRows[i];
     if (!rawRow) continue;
 
-    const rowData = extractRowData(rawRow, columnMap);
+    const formattedRow = formattedDataRows[i] ?? [];
+    const rowData = extractRowData(formattedRow, columnMap);
 
     const isBlank = Object.values(rowData).every((v) => v === "");
     if (isBlank) continue;
 
     const excelRowIndex = i + 2;
     const rawRecord: Record<string, unknown> = {};
+
+    if (referenceColumn) {
+      const referenceIndex = Number(referenceColumn[0]);
+      const ref = resolveReference(
+        rawRow[referenceIndex],
+        rowData.referenceNumber,
+      );
+      if (ref?.error) {
+        errors.push({
+          rowIndex: excelRowIndex,
+          field: "referenceNumber",
+          message: ref.error,
+        });
+        continue;
+      }
+      rowData.referenceNumber = ref?.value ?? rowData.referenceNumber;
+      if (ref?.warning) {
+        warnings.push({
+          rowIndex: excelRowIndex,
+          field: "referenceNumber",
+          message: ref.warning,
+        });
+      }
+    }
 
     for (const [colStr, headerKey] of Object.entries(columnMap)) {
       const colIdx = Number(colStr);
@@ -327,5 +200,6 @@ export function parseWorkbook(buffer: Buffer): ParseResult {
     validCount: rows.length,
     errorCount: errors.length,
     missingHeaders,
+    warnings,
   };
 }

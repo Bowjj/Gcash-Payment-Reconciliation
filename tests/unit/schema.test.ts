@@ -104,10 +104,22 @@ describe("validateAndNormalize", () => {
     expect(result.valid[0]?.referenceNumber).toBe("0045276500984");
   });
 
-  it("parses amount as number", () => {
+  it("parses amount as integer centavos", () => {
     const result = validateAndNormalize([makeRow({ amount: "1299" })]);
-    expect(result.valid[0]?.amount).toBe(1299);
-    expect(typeof result.valid[0]?.amount).toBe("number");
+    expect(result.valid[0]?.amountCentavos).toBe(129900);
+  });
+
+  it.each(["1000", "1000.00", "1,000.00"])(
+    "normalizes %s to the same centavo value",
+    (amount) => {
+      const result = validateAndNormalize([makeRow({ amount })]);
+      expect(result.valid[0]?.amountCentavos).toBe(100000);
+    },
+  );
+
+  it("rejects excessive decimal precision", () => {
+    const result = validateAndNormalize([makeRow({ amount: "1.001" })]);
+    expect(result.valid).toHaveLength(0);
   });
 
   it("handles empty photo field", () => {
@@ -117,6 +129,25 @@ describe("validateAndNormalize", () => {
 
   it("handles View Photo text as non-URL", () => {
     const result = validateAndNormalize([makeRow({ photo: "View Photo" })]);
+    expect(result.valid[0]?.photoUrl).toBeNull();
+  });
+
+  it.each([
+    "https://example.com/proof.png",
+    "http://example.com/proof.png",
+    "  https://example.com/proof.png  ",
+  ])("accepts safe proof URL %s", (photo) => {
+    const result = validateAndNormalize([makeRow({ photo })]);
+    expect(result.valid[0]?.photoUrl).toBe(photo.trim());
+  });
+
+  it.each([
+    "ftp://example.com/file",
+    "javascript:alert(1)",
+    "httpx-not-a-url",
+    "malformed URL",
+  ])("normalizes unsafe proof value %s to null", (photo) => {
+    const result = validateAndNormalize([makeRow({ photo })]);
     expect(result.valid[0]?.photoUrl).toBeNull();
   });
 });

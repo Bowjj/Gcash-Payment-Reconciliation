@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-import { normalizeMethod, type NormalizedMethod } from "./normalize";
+import { parseCentavos } from "@/lib/money";
+
+import { isValidPhotoUrl, normalizeMethod, type NormalizedMethod } from "./normalize";
 
 export const paymentRowSchema = z.object({
   rowIndex: z.number().int().positive(),
@@ -10,13 +12,9 @@ export const paymentRowSchema = z.object({
   amount: z
     .string()
     .min(1, "Amount is required")
-    .refine(
-      (val) => {
-        const num = Number(val);
-        return !isNaN(num) && num >= 0;
-      },
-      { message: "Amount must be a non-negative number" },
-    ),
+    .refine((value) => parseCentavos(value).success, {
+      message: "Amount must be a non-negative number with at most two decimal places",
+    }),
   method: z.string().min(1, "Method is required"),
   referenceNumber: z.string().optional().default(""),
   paymentDate: z.string().optional().default(""),
@@ -35,7 +33,7 @@ export interface ValidatedPayment {
   readonly customer: string;
   readonly account: string;
   readonly billingPeriod: string;
-  readonly amount: number;
+  readonly amountCentavos: number;
   readonly method: NormalizedMethod;
   readonly referenceNumber: string;
   readonly paymentDate: string | null;
@@ -121,28 +119,24 @@ export function validateAndNormalize(
     else if (method === "CASH") cashCount++;
     else if (method === "BANK") bankCount++;
 
-    const amount = Number(row.amount);
-    if (isNaN(amount) || amount < 0) {
+    const amount = parseCentavos(row.amount);
+    if (!amount.success) {
       errors.push({
         rowIndex: row.rowIndex,
         field: "amount",
-        message: `Invalid amount: "${row.amount}"`,
+        message: amount.error,
       });
       continue;
     }
 
-    const photoUrl = row.photo
-      ? row.photo.startsWith("http")
-        ? row.photo
-        : null
-      : null;
+    const photoUrl = isValidPhotoUrl(row.photo.trim()) ? row.photo.trim() : null;
 
     valid.push({
       rowIndex: row.rowIndex,
       customer: row.customer,
       account: row.account,
       billingPeriod: row.billingPeriod,
-      amount,
+      amountCentavos: amount.centavos,
       method,
       referenceNumber: row.referenceNumber,
       paymentDate: parseDate(row.paymentDate),

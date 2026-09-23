@@ -15,9 +15,10 @@ export function normalizeMethod(raw: string): NormalizedMethod | null {
 }
 
 export function isValidPhotoUrl(url: string): boolean {
-  if (!url || url === "View Photo") return false;
+  const normalized = url.trim();
+  if (!normalized || normalized === "View Photo") return false;
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(normalized);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;

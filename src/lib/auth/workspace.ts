@@ -1,6 +1,21 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+
+import {
+  ACTIVE_WORKSPACE_COOKIE,
+  selectActiveWorkspace,
+  type AppWorkspace,
+} from "./active-workspace";
+
+export { type AppWorkspace } from "./active-workspace";
+
+interface MembershipRow {
+  business_id: string;
+  role: string;
+  businesses: { id: string; name: string } | { id: string; name: string }[];
+}
 
 export async function requireAuth() {
   const supabase = await createClient();
@@ -14,6 +29,24 @@ export async function requireAuth() {
   return { user, supabase };
 }
 
+function toWorkspaceList(memberships: readonly MembershipRow[]): AppWorkspace[] {
+  const workspaces: AppWorkspace[] = [];
+
+  for (const row of memberships) {
+    const business = Array.isArray(row.businesses)
+      ? row.businesses[0]
+      : row.businesses;
+    if (!business) continue;
+    workspaces.push({
+      id: row.business_id,
+      name: business.name,
+      role: row.role,
+    });
+  }
+
+  return workspaces;
+}
+
 export async function getActiveWorkspace() {
   const { user, supabase } = await requireAuth();
 
@@ -21,28 +54,22 @@ export async function getActiveWorkspace() {
     .from("business_members")
     .select("business_id, role, businesses(id, name)")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1);
+    .order("created_at", { ascending: true });
 
-  if (error || !memberships || memberships.length === 0) {
-    return { user, workspace: null, membership: null };
+  const workspaces = toWorkspaceList(memberships ?? []);
+
+  if (error) {
+    return { user, workspace: null, membership: null, workspaces };
   }
 
-  const first = memberships[0];
-  if (!first) {
-    return { user, workspace: null, membership: null };
-  }
-
-  const workspace = Array.isArray(first.businesses)
-    ? first.businesses[0]
-    : first.businesses;
+  const cookieStore = await cookies();
+  const activeBusinessId = cookieStore.get(ACTIVE_WORKSPACE_COOKIE)?.value;
+  const active = selectActiveWorkspace(workspaces, activeBusinessId);
 
   return {
     user,
-    workspace: workspace ?? null,
-    membership: {
-      businessId: first.business_id,
-      role: first.role,
-    },
+    workspace: active ? { id: active.id, name: active.name } : null,
+    membership: active ? { businessId: active.id, role: active.role } : null,
+    workspaces,
   };
 }

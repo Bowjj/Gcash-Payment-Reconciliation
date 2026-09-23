@@ -4,11 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { WorkspaceSwitcher } from "@/components/workspace/workspace-switcher";
+import { logout } from "@/lib/auth/actions";
+import type { AppWorkspace } from "@/lib/auth/active-workspace";
 import type { User } from "@supabase/supabase-js";
 
 interface AuthSidebarProps {
   user: User;
-  workspace: { id: string; name: string } | null;
+  workspaces: readonly AppWorkspace[];
+  activeWorkspaceId: string | null;
 }
 
 const navItems = [
@@ -18,7 +22,7 @@ const navItems = [
   { href: "/settings", label: "Settings" },
 ];
 
-export function AuthSidebar({ user, workspace }: AuthSidebarProps) {
+export function AuthSidebar({ user, workspaces, activeWorkspaceId }: AuthSidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -50,12 +54,11 @@ export function AuthSidebar({ user, workspace }: AuthSidebarProps) {
 
       <div className="border-t p-4">
         <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-        {workspace ? (
-          <p className="truncate text-xs font-medium">{workspace.name}</p>
-        ) : (
-          <p className="text-xs text-muted-foreground">No workspace</p>
-        )}
-        <form action="/logout" method="post" className="mt-2">
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+        />
+        <form action={logout} className="mt-2">
           <Button type="submit" variant="ghost" size="sm" className="w-full justify-start text-xs">
             Sign out
           </Button>

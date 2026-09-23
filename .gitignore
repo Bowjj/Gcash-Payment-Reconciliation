@@ -23,6 +23,9 @@
 .vercel
 
 # tooling
+/.omo/
+/supabase/.temp/
+/supabase/.branches/
 *.tsbuildinfo
 next-env.d.ts
 .pnpm-debug.log*

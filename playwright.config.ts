@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const configuredBaseURL = process.env["PLAYWRIGHT_BASE_URL"];
-const baseURL = configuredBaseURL ?? "http://127.0.0.1:3000";
+const baseURL = configuredBaseURL ?? "http://127.0.0.1:3100";
 const isCI = process.env["CI"] !== undefined;
 
 export default defineConfig({
@@ -24,7 +24,7 @@ export default defineConfig({
   ...(configuredBaseURL === undefined
     ? {
         webServer: {
-          command: "corepack pnpm start --hostname 127.0.0.1",
+          command: "corepack pnpm start --hostname 127.0.0.1 --port 3100",
           reuseExistingServer: false,
           stderr: "pipe",
           stdout: "pipe",

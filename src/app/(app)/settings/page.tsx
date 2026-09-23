@@ -1,6 +1,12 @@
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CreateWorkspaceForm } from "@/components/workspace/create-workspace-form";
+import { WorkspaceList } from "@/components/workspace/workspace-list";
+import { getActiveWorkspace } from "@/lib/auth/workspace";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const { membership, workspaces } = await getActiveWorkspace();
+  const activeWorkspaceId = membership?.businessId ?? null;
+
   return (
     <div className="space-y-6">
       <div>
@@ -11,9 +17,27 @@ export default function SettingsPage() {
       </div>
 
       <Card>
-        <CardContent className="py-6 text-center text-sm text-muted-foreground">
-          This feature is not yet available. It will be implemented in a future
-          sprint.
+        <CardHeader>
+          <CardTitle className="text-base">Workspaces</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WorkspaceList
+            workspaces={workspaces}
+            activeWorkspaceId={activeWorkspaceId}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Create Workspace</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Create a new workspace for a separate business or company. You can
+            switch between your workspaces at any time.
+          </p>
+          <CreateWorkspaceForm />
         </CardContent>
       </Card>
     </div>

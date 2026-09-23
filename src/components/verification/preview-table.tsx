@@ -1,9 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCentavos } from "@/lib/money";
 
 interface PreviewRow {
   readonly rowIndex: number;
   readonly customer: string;
-  readonly amount: number;
+  readonly account?: string;
+  readonly billingPeriod?: string;
+  readonly amountCentavos: number;
   readonly method: string;
   readonly referenceNumber: string;
   readonly paymentDate: string | null;
@@ -30,6 +33,8 @@ export function PreviewTable({ rows, totalCount }: PreviewTableProps) {
               <tr className="border-b text-left text-xs font-medium text-muted-foreground">
                 <th className="pb-2 pr-4">#</th>
                 <th className="pb-2 pr-4">Customer</th>
+                <th className="pb-2 pr-4">Account</th>
+                <th className="pb-2 pr-4">Billing Period</th>
                 <th className="pb-2 pr-4 text-right">Amount</th>
                 <th className="pb-2 pr-4">Method</th>
                 <th className="pb-2 pr-4">Reference</th>
@@ -47,8 +52,10 @@ export function PreviewTable({ rows, totalCount }: PreviewTableProps) {
                     {row.rowIndex}
                   </td>
                   <td className="py-2 pr-4">{row.customer}</td>
+                  <td className="py-2 pr-4">{row.account || "-"}</td>
+                  <td className="py-2 pr-4">{row.billingPeriod || "-"}</td>
                   <td className="py-2 pr-4 text-right font-mono">
-                    {row.amount.toLocaleString()}
+                    {formatCentavos(row.amountCentavos)}
                   </td>
                   <td className="py-2 pr-4">
                     <span

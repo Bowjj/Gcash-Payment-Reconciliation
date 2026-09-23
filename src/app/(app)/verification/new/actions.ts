@@ -1,10 +1,8 @@
 "use server";
 
-import { redirect } from "next/navigation";
-
-import { parseWorkbook } from "@/lib/excel/parser";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
-import { validateAndNormalize } from "@/lib/payments/schema";
+import { paymentImportRows } from "@/lib/verification/import-rows";
+import { preparePaymentImport } from "@/lib/payments/import";
 
 export interface UploadParseResult {
   readonly success: boolean;
@@ -14,6 +12,7 @@ export interface UploadParseResult {
   readonly errorCount?: number;
   readonly missingHeaders?: readonly string[];
   readonly errors?: readonly { rowIndex: number; field: string; message: string }[];
+  readonly warnings?: readonly { rowIndex: number; field: string; message: string }[];
   readonly summary?: {
     readonly gcashCount: number;
     readonly cashCount: number;
@@ -23,7 +22,9 @@ export interface UploadParseResult {
   readonly preview?: readonly {
     readonly rowIndex: number;
     readonly customer: string;
-    readonly amount: number;
+    readonly account: string;
+    readonly billingPeriod: string;
+    readonly amountCentavos: number;
     readonly method: string;
     readonly referenceNumber: string;
     readonly paymentDate: string | null;
@@ -34,38 +35,41 @@ export interface UploadParseResult {
 export async function parseUploadAction(
   formData: FormData,
 ): Promise<UploadParseResult> {
+  await getActiveWorkspace();
   const file = formData.get("file");
   if (!(file instanceof File)) {
     return { success: false, errors: [{ rowIndex: 0, field: "file", message: "No file provided" }] };
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const parseResult = parseWorkbook(buffer);
+  const result = preparePaymentImport(Buffer.from(await file.arrayBuffer()));
 
-  if (parseResult.missingHeaders.length > 0 && parseResult.rows.length === 0) {
+  if (result.missingHeaders.length > 0 && result.valid.length === 0) {
     return {
       success: false,
       filename: file.name,
-      errors: parseResult.errors,
-      missingHeaders: parseResult.missingHeaders,
+      errors: result.parseErrors,
+      missingHeaders: result.missingHeaders,
     };
   }
 
-  const { valid, errors, summary } = validateAndNormalize(parseResult.rows);
+  const errors = [...result.parseErrors, ...result.errors];
 
   return {
     success: true,
     filename: file.name,
-    totalRows: parseResult.totalRows,
-    validCount: valid.length,
+    totalRows: result.totalRows,
+    validCount: result.valid.length,
     errorCount: errors.length,
-    missingHeaders: parseResult.missingHeaders,
+    missingHeaders: result.missingHeaders,
     errors,
-    summary,
-    preview: valid.slice(0, 50).map((r) => ({
+    warnings: result.warnings,
+    summary: result.summary,
+    preview: result.preview.map((r) => ({
       rowIndex: r.rowIndex,
       customer: r.customer,
-      amount: r.amount,
+      account: r.account,
+      billingPeriod: r.billingPeriod,
+      amountCentavos: r.amountCentavos,
       method: r.method,
       referenceNumber: r.referenceNumber,
       paymentDate: r.paymentDate,
@@ -82,24 +86,23 @@ export interface ConfirmImportResult {
 }
 
 export async function confirmImportAction(
-  rows: readonly {
-    readonly rowIndex: number;
-    readonly customer: string;
-    readonly account: string;
-    readonly billingPeriod: string;
-    readonly amount: number;
-    readonly method: string;
-    readonly referenceNumber: string;
-    readonly paymentDate: string | null;
-    readonly notes: string;
-    readonly paidBy: string;
-    readonly receivedBy: string;
-    readonly photoUrl: string | null;
-    readonly createdAt: string | null;
-  }[],
-  filename: string,
+  formData: FormData,
 ): Promise<ConfirmImportResult> {
-  const { user, workspace, membership } = await getActiveWorkspace();
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return { success: false, error: "No payment file provided." };
+  }
+
+  const prepared = preparePaymentImport(Buffer.from(await file.arrayBuffer()));
+  if (prepared.missingHeaders.length > 0 && prepared.valid.length === 0) {
+    return { success: false, error: "The payment file is missing required headers." };
+  }
+
+  if (prepared.valid.length === 0) {
+    return { success: false, error: "The payment file has no valid rows to import." };
+  }
+
+  const { workspace, membership } = await getActiveWorkspace();
 
   if (!workspace || !membership) {
     return { success: false, error: "No workspace found. Create a workspace first." };
@@ -109,45 +112,22 @@ export async function confirmImportAction(
     m.createClient(),
   );
 
-  const { data: run, error: runError } = await supabase
-    .from("verification_runs")
-    .insert({
-      business_id: membership.businessId,
-      requested_by: user.id,
-      status: "queued",
-    })
-    .select("id")
-    .single();
+  const payments = paymentImportRows(prepared, file.name);
 
-  if (runError || !run) {
-    return { success: false, error: "Failed to create verification run" };
+  const { data: verificationRunId, error: insertError } = await supabase.rpc(
+    "create_payment_import",
+    {
+      p_business_id: membership.businessId,
+      p_rows: payments,
+    },
+  );
+
+  if (insertError || typeof verificationRunId !== "string") {
+    return {
+      success: false,
+      error: `Failed to insert payments: ${insertError?.message ?? "No verification run was returned"}`,
+    };
   }
 
-  const payments = rows.map((r) => ({
-    verification_run_id: run.id,
-    business_id: membership.businessId,
-    imported_by: user.id,
-    customer: r.customer,
-    account: r.account || null,
-    billing_period: r.billingPeriod || null,
-    amount: r.amount,
-    method: r.method,
-    reference_number: r.referenceNumber || null,
-    payment_date: r.paymentDate || null,
-    notes: r.notes || null,
-    paid_by: r.paidBy || null,
-    received_by: r.receivedBy || null,
-    photo_url: r.photoUrl || null,
-    created_at_source: r.createdAt || null,
-    row_index: r.rowIndex,
-    raw_data: { filename },
-  }));
-
-  const { error: insertError } = await supabase.from("payments").insert(payments);
-
-  if (insertError) {
-    return { success: false, error: `Failed to insert payments: ${insertError.message}` };
-  }
-
-  redirect(`/verification/${run.id}`);
+  return { success: true, verificationRunId, insertedCount: payments.length };
 }
