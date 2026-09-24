@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadDropzone } from "@/components/verification/upload-dropzone";
@@ -132,6 +133,7 @@ export function VerificationFlow({ workspaceId }: { workspaceId: string }) {
         </dl>}
         <p className="text-sm text-muted-foreground">Verified means one unique exact reference match. Amount differences do not affect verification. Payments needing review have no customer attached to a GCash transaction.</p>
         <p className="break-all text-xs text-muted-foreground">Run: {saved.verificationRunId}</p>
+        <Link className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href={`/verification/${saved.verificationRunId}`}>View Results</Link>
         <Button variant="outline" onClick={reset}>Start new verification</Button>
       </CardContent>
     </Card>

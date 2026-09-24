@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
 
 import { CreateWorkspaceForm } from "@/components/workspace/create-workspace-form";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
@@ -96,12 +97,12 @@ export default async function DashboardPage() {
           ) : workspace ? (
             <p className="text-sm text-muted-foreground">
               No verification runs yet in this workspace. Go to{" "}
-              <a
+              <Link
                 href="/verification/new"
                 className="underline hover:text-foreground"
               >
                 New Verification
-              </a>{" "}
+              </Link>{" "}
               to get started.
             </p>
           ) : (

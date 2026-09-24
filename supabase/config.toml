@@ -2,15 +2,15 @@
 id = "local"
 
 [db]
-port = 54322
-shadow_port = 54320
+port = 55322
+shadow_port = 55320
 major_version = 15
 
 [studio]
-port = 54323
+port = 55323
 
 [api]
-port = 54321
+port = 55321
 
 [auth]
 site_url = "http://localhost:3000"
@@ -27,4 +27,12 @@ enable_confirmations = false
 
 [storage]
 enabled = true
-port = 50000
+port = 55329
+
+[inbucket]
+port = 55324
+smtp_port = 55325
+pop3_port = 55326
+
+[analytics]
+port = 55327
