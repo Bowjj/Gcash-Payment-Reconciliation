@@ -4,6 +4,7 @@ import { authorizedRun } from "@/lib/verification/results-server";
 import { gcashResultSchema, paymentPageSchema } from "@/lib/verification/results-data";
 import { displayDate, displayMoney, matchesResult, reasonMessages, resultsQuerySchema } from "@/lib/verification/review";
 import { Pagination, ProofLink, ResultStatus, ResultSummary } from "@/components/verification/result-shared";
+import { DownloadExcelButton } from "@/components/verification/download-excel-button";
 
 export default async function VerificationResultsPage({ params, searchParams }: {
   params: Promise<{ runId: string }>;
@@ -43,6 +44,7 @@ export default async function VerificationResultsPage({ params, searchParams }: 
       <Link href="/history" className="text-sm underline">Back to History</Link>
       <h1 className="text-2xl font-semibold tracking-tight">Verification Results</h1>
       <p>Workspace: <strong>{workspace.name}</strong></p>
+      <DownloadExcelButton runId={runId} />
       <dl className="grid gap-2 text-sm sm:grid-cols-3">
         <div className="min-w-0"><dt className="text-muted-foreground">Payment File</dt><dd className="break-all">{run.payment_filename ?? "Unavailable"}</dd></div>
         <div className="min-w-0"><dt className="text-muted-foreground">GCash File</dt><dd className="break-all">{run.gcash_filename ?? "Unavailable"}</dd></div>

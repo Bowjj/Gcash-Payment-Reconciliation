@@ -33,6 +33,7 @@ export function parseGcashWorkbook(buffer: Buffer): GcashParseResult {
     });
     if (rawRows.length === 0) continue;
     sheetsProcessed.push(sheetName);
+    const sourceHeaders = formattedRows.find((row) => String(row[0] ?? "").trim().toUpperCase().startsWith("DATE AND TIME")) ?? [];
 
     for (let index = 0; index < rawRows.length; index++) {
       const rawRow = rawRows[index];
@@ -51,7 +52,10 @@ export function parseGcashWorkbook(buffer: Buffer): GcashParseResult {
           errors.push({ rowIndex, sheetName, field: result.field, message: result.message });
           break;
         case "transaction":
-          rows.push({ rowIndex, sheetName, ...result.data });
+          rows.push({ rowIndex, sheetName, ...result.data, raw: {
+            ...result.data.raw,
+            export_source: { headers: sourceHeaders, cells: formattedRow, reference_column: "col0" in result.data.raw ? null : 6 },
+          } });
           if (result.data.warning) {
             warnings.push({
               rowIndex,
