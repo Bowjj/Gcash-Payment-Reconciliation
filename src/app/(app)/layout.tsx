@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { WorkspaceSwitcher } from "@/components/workspace/workspace-switcher";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 
-import { AuthSidebar } from "./auth-sidebar";
+import { AppNavigation, AuthSidebar } from "./auth-sidebar";
 import { LogoutButton } from "./logout-button";
+import { ThemeControl } from "@/components/theme/theme-control";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +26,13 @@ export default async function AppLayout({
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-col gap-3 border-b px-6 py-3 sm:flex-row sm:items-center sm:justify-between md:hidden">
-          <span className="text-sm font-semibold">Payment Reconciliation</span>
-          <div className="flex min-w-0 items-center gap-2">
+        <header className="space-y-3 border-b bg-card px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm font-semibold md:hidden">Payment Reconciliation</span>
+            <span className="hidden text-sm text-muted-foreground md:inline">Payment workspace</span>
+            <ThemeControl />
+          </div>
+          <div className="flex min-w-0 items-center gap-2 md:hidden">
             <WorkspaceSwitcher
               workspaces={workspaces}
               activeWorkspaceId={activeWorkspaceId}
@@ -35,9 +40,10 @@ export default async function AppLayout({
             />
             <LogoutButton />
           </div>
+          <AppNavigation mobile />
         </header>
 
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="mx-auto w-full max-w-screen-2xl flex-1 overflow-auto p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

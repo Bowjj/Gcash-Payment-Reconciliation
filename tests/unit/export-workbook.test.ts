@@ -1,207 +1,210 @@
 import ExcelJS from "exceljs";
+import * as XLSX from "xlsx";
 import { beforeAll, describe, expect, test } from "vitest";
-import { buildVerificationWorkbook, exportFilename, REQUIRED_SHEETS, verificationWorkbookBuffer } from "@/lib/export/verification-workbook";
-import { excelDate, moneyCell, safeText, sourceCheckedDate } from "@/lib/export/cells";
+import { buildOperationalWorkbook, exportFilename, operationalWorkbookBuffer, STATUS_COLORS } from "@/lib/export/verification-workbook";
+import { safeText, moneyCell } from "@/lib/export/cells";
+import { captureSourceWorkbook } from "@/lib/export/source-workbook";
 import { exportFixture, transactionId } from "../fixtures/export";
+import { operationalFixture } from "../fixtures/operational-export";
 
-let workbook: ExcelJS.Workbook;
-let bytes: Uint8Array;
-function sheet(name: string) {
-  const value = workbook.getWorksheet(name);
-  if (!value) throw new Error(`Missing sheet ${name}`);
-  return value;
-}
-function cell(sheetName: string, row: number, column: string) {
-  const s = sheet(sheetName);
-  const index = Array.from({ length: s.columnCount }, (_, i) => i + 1).find((i) => s.getRow(1).getCell(i).text === column);
-  if (!index) throw new Error(`Missing column ${column}`);
-  return s.getRow(row).getCell(index);
-}
-function customers(name: string) {
-  return Array.from({ length: sheet(name).rowCount - 1 }, (_, i) => cell(name, i + 2, "Customer").text);
-}
+let fixture: Awaited<ReturnType<typeof operationalFixture>>;
+let payments: ExcelJS.Workbook;
+let gcash: ExcelJS.Workbook;
+function sheet(book: ExcelJS.Workbook, name: string) { const s = book.getWorksheet(name); if (!s) throw new Error(`Missing ${name}`); return s; }
+function p(row: number, col: number) { return sheet(payments, "Payment Testing").getCell(row, col); }
 beforeAll(async () => {
-  const buffer = await verificationWorkbookBuffer(exportFixture());
-  bytes = buffer;
-  workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer.buffer);
+  fixture = await operationalFixture();
+  payments = new ExcelJS.Workbook(); gcash = new ExcelJS.Workbook();
+  await payments.xlsx.load((await operationalWorkbookBuffer(fixture.data, "payments")).buffer);
+  await gcash.xlsx.load((await operationalWorkbookBuffer(fixture.data, "gcash")).buffer);
 });
-
-test("workbook generates and round-trips through ExcelJS as a valid XLSX ZIP", () => {
-  expect(bytes.length).toBeGreaterThan(1000);
-  expect([...bytes.slice(0, 2)]).toEqual([80, 75]);
-  expect(workbook.worksheets.map((s) => s.name)).toEqual(REQUIRED_SHEETS);
+test("exactly two operational workbook kinds, retaining original worksheet names, not analytical sheets", () => {
+  expect(payments.worksheets.map((s) => s.name)).toEqual(["Payment Testing", "Original Instructions"]);
+  expect(gcash.worksheets.map((s) => s.name)).toEqual(["September", "October", "Cover"]);
 });
-test.each(REQUIRED_SHEETS)("required sheet exists with bold frozen filterable headers: %s", (name) => {
-  expect(sheet(name).getRow(1).font.bold).toBe(true);
-  expect(sheet(name).views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
-  expect(sheet(name).autoFilter).toBeTruthy();
+test("Payment original row positions, blank rows, footer, merges and non-payment sheet remain", () => {
+  expect(sheet(payments, "Payment Testing").rowCount).toBe(13);
+  expect(p(12, 1).value).toBeNull(); expect(p(13, 1).value).toBe("Keep original footer");
+  expect(p(13, 2).isMerged).toBe(true);
+  expect(sheet(payments, "Original Instructions").getCell("B3").value).toBe("Non-payment content");
+  expect(p(13, 13).value).toBeNull();
 });
-test("Summary uses persisted final counts and identifies manual vs automated totals", () => {
-  const values = new Map<string, ExcelJS.CellValue>();
-  sheet("Summary").eachRow((row) => values.set(row.getCell(1).text, row.getCell(2).value));
-  expect(values.get("Total Payments")).toBe(9);
-  expect(values.get("Verified")).toBe(3);
-  expect(values.get("Needs Review")).toBe(4);
-  expect(values.get("Cash")).toBe(1);
-  expect(values.get("Bank")).toBe(1);
-  expect(values.get("Manual Review Count")).toBe(1);
-  expect(values.get("Automatically Verified Count")).toBe(2);
+test("original columns stay in place; only two annotations added at the far right", () => {
+  for (let col = 1; col <= 12; col++) expect(p(1, col).value).toEqual(fixture.paymentBook.worksheets[0]?.getCell(1, col).value);
+  expect(p(1, 13).text).toBe("Verification Status"); expect(p(1, 14).text).toBe("Verification Note");
+  expect(sheet(payments, "Payment Testing").columnCount).toBe(14);
 });
-test("All Payments contains every payment, including records outside review categories", () => expect(sheet("All Payments").rowCount).toBe(10));
-test("Verified includes automatic payments", () => expect(customers("Verified")).toContain("Jake Tirana"));
-test("Verified includes manual-only verified payments", () => expect(customers("Verified")).toContain("Manual Only Customer"));
-test("manual verification retains automated status, reason, note and reviewer", () => {
-  const row = customers("Verified").indexOf("Manual Only Customer") + 2;
-  expect(cell("Verified", row, "Automated Status").text).toBe("NEEDS_REVIEW");
-  expect(cell("Verified", row, "Automated Reason").text).toBe("REFERENCE_NOT_FOUND");
-  expect(cell("Verified", row, "Final Status").text).toBe("VERIFIED");
-  expect(cell("Verified", row, "Manual Review").text).toBe("Yes");
-  expect(cell("Verified", row, "Manual Note").text).toBe("Confirmed manually with admin");
-  expect(cell("Verified", row, "Reviewed By").text).toBe("reviewer@example.com");
-  expect(cell("Verified", row, "Reviewed At (UTC)").value).toBeInstanceOf(Date);
-  expect(cell("Verified", row, "Matched GCash Reference").text).toBe("");
-});
-test("Needs Review contains unresolved final statuses only", () => {
-  expect(customers("Needs Review")).toHaveLength(4);
-  expect(customers("Needs Review")).not.toContain("Manual Only Customer");
-  expect(cell("Needs Review", 2, "Automated Reason").text).toBe("REFERENCE_NOT_FOUND");
-});
-test("Cash sheet contains CASH only", () => expect(customers("Cash")).toEqual(["Cash Customer"]));
-test("Bank sheet contains BANK only", () => expect(customers("Bank")).toEqual(["Bank Customer"]));
-test("GCash unique persisted relationship attaches the correct customer at far right", () => {
-  const s = sheet("GCash Transactions");
-  expect(s.getRow(1).getCell(s.columnCount).text).toBe("Matched Customer");
-  expect(s.getRow(2).getCell(s.columnCount).text).toBe("Jake Tirana");
-});
-test("1300 payment / 1299 GCash stays VERIFIED with the customer attached", () => {
-  expect(cell("All Payments", 2, "Amount").value).toBe(1300);
-  expect(cell("All Payments", 2, "Matched GCash Amount").value).toBe(1299);
-  expect(cell("All Payments", 2, "Final Status").text).toBe("VERIFIED");
-  expect(cell("GCash Transactions", 2, "Debit").value).toBe(1299);
-  expect(cell("GCash Transactions", 2, "Matched Customer").text).toBe("Jake Tirana");
-});
-test("unmatched GCash transaction is retained with a blank customer", () => {
-  expect(sheet("GCash Transactions").rowCount).toBe(7);
-  expect(cell("GCash Transactions", 6, "REF NO").text).toBe("UNMATCHED");
-  expect(cell("GCash Transactions", 6, "Matched Customer").text).toBe("");
-});
-test("manual-only verification cannot fabricate any GCash customer", () => {
-  for (let row = 2; row <= 7; row++) expect(cell("GCash Transactions", row, "Matched Customer").text).not.toBe("Manual Only Customer");
-});
-test("duplicate candidates both retain blank customers", () => {
-  for (const row of [3, 4]) {
-    expect(cell("GCash Transactions", row, "REF NO").text).toBe("DUPLICATE");
-    expect(cell("GCash Transactions", row, "Matched Customer").text).toBe("");
+test("original Payment values and value types are unchanged (including method, notes, dates and amounts)", () => {
+  const original = fixture.paymentBook.worksheets[0]; if (!original) throw new Error("Missing source");
+  for (let row = 1; row <= 10; row++) for (let col = 1; col <= 12; col++) {
+    if (row === 4 && col === 11) continue; // unsafe hyperlink intentionally removed, text retained
+    expect(p(row, col).value).toEqual(original.getCell(row, col).value);
   }
+  expect(p(2, 4).value).toBe(1300); expect(p(3, 4).value).toBe("1000");
 });
-test("source order is preserved despite unordered input rows and worksheet row-number overlap", () => {
-  const fixture = exportFixture(); fixture.gcash.reverse();
-  const rebuilt = buildVerificationWorkbook(fixture).getWorksheet("GCash Transactions");
-  expect(rebuilt?.getRow(2).getCell(1).text).toBe("September");
-  expect(rebuilt?.getRow(5).getCell(1).text).toBe("October");
-  expect(rebuilt?.getRow(2).getCell(2).value).toBe(2);
-  expect(rebuilt?.getRow(5).getCell(2).value).toBe(2);
-  expect(rebuilt?.getRow(2).getCell(rebuilt.columnCount).text).toBe("Jake Tirana");
+test.each([[2, "VERIFIED", "VERIFIED"], [3, "NEEDS REVIEW", "NEEDS_REVIEW"], [6, "CASH", "CASH"], [7, "BANK", "BANK"]] as const)("acceptance row %s has visible %s and the required color", (row, label, status) => {
+  expect(p(row, 13).text).toBe(label);
+  expect(p(row, 13).fill).toMatchObject({ fgColor: { argb: STATUS_COLORS[status]?.fill } });
+  expect(p(row, 13).font.color).toEqual({ argb: STATUS_COLORS[status]?.text });
 });
-test("original extra columns and displayed source values survive export", () => {
-  expect(cell("GCash Transactions", 2, "Extra Bank Field").text).toBe("Preserved 0");
-  expect(cell("GCash Transactions", 2, "Account").text).toBe("00001234");
-  expect(cell("GCash Transactions", 2, "Channel").text).toBe("Original channel");
+test("original cell fills are preserved; status coloring does not cover the row", () => {
+  expect(p(2, 1).fill).toMatchObject({ fgColor: { argb: "FFE2E8F0" } });
+  expect(p(2, 4).fill).not.toEqual(p(2, 13).fill);
 });
-test.each([[2, "0045276500984"], [9, "0000203966985"]])("Payment reference on row %s is text without lost zeros", (row, reference) => {
-  const c = cell("All Payments", Number(row), "Reference #");
-  expect(c.value).toBe(reference);
-  expect(c.type).toBe(ExcelJS.ValueType.String);
-  expect(c.numFmt).toBe("@");
+test("source formatting, dimensions, frozen header and date format survive", () => {
+  const s = sheet(payments, "Payment Testing");
+  expect(s.getColumn(1).width).toBe(32); expect(s.getRow(1).height).toBe(30);
+  expect(s.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+  expect(p(2, 4).numFmt).toBe("#,##0.00"); expect(p(2, 7).numFmt).toBe("dd mmm yyyy");
 });
-test.each([[2, "0045276500984"], [5, "0000203966985"]])("GCash reference on row %s is text without scientific notation", (row, reference) => {
-  const c = cell("GCash Transactions", Number(row), "REF NO");
-  expect(c.value).toBe(reference);
-  expect(c.type).toBe(ExcelJS.ValueType.String);
-  expect(c.numFmt).toBe("@");
+test.each([[2, "Exact reference found"], [3, "Reference not found"], [4, "Missing reference"], [5, "Duplicate reference"], [6, "Cash payment"], [7, "Bank payment"]] as const)("row %s has a human-readable note", (row, note) => expect(p(row, 14).text).toBe(note));
+test("manual-only VERIFIED retains final status and note, with no fabricated GCash customer", () => {
+  expect(p(8, 13).text).toBe("VERIFIED"); expect(p(8, 14).text).toContain("Manually marked verified. Confirmed manually with admin");
+  for (const s of gcash.worksheets) s.eachRow((row) => expect(row.getCell(s.columnCount).text).not.toBe("Manual Only Customer"));
 });
-test("matched reconciliation reference fields are also text", () => expect(cell("All Payments", 2, "Matched GCash Reference").numFmt).toBe("@"));
-test("money uses pesos with two decimal formatting rather than centavos", () => {
-  expect(cell("All Payments", 2, "Amount").numFmt).toBe("#,##0.00");
-  expect(cell("All Payments", 2, "Matched GCash Amount").value).toBe(1299);
+test("GCash original worksheets, row positions, values and extra columns remain", () => {
+  for (const name of ["September", "October"]) {
+    const output = sheet(gcash, name); const original = sheet(fixture.gcashBook, name);
+    expect(output.rowCount).toBe(6);
+    for (let row = 1; row <= 6; row++) for (let col = 1; col <= 12; col++) expect(output.getCell(row, col).value).toEqual(original.getCell(row, col).value);
+    expect(output.columnCount).toBe(13); expect(output.getCell(1, 13).text).toBe("Matched Customer");
+  }
+  expect(sheet(gcash, "Cover").getCell("A1").text).toBe("Original statement cover");
 });
-test.each([[2, "https://example.com/proof.png"], [3, "http://example.com/proof.png"]])("safe proof URL on row %s is a hyperlink", (row, url) => expect(cell("All Payments", Number(row), "Photo / Proof").hyperlink).toBe(url));
-test("invalid proof creates no hyperlink", () => expect(cell("All Payments", 4, "Photo / Proof").hyperlink).toBeUndefined());
-test.each(["Customer", "Notes"])("formula-like Payment %s is inert text", (column) => {
-  const c = cell("All Payments", 10, column);
-  expect(c.text).toMatch(/^'/);
-  expect(c.type).toBe(ExcelJS.ValueType.String);
-  expect(c.formula).toBeUndefined();
+test("1300 payment and 1299 GCash stay unchanged with Jake Tirana linked", () => {
+  const s = sheet(gcash, "September");
+  expect(p(2, 4).value).toBe(1300); expect(p(2, 13).text).toBe("VERIFIED");
+  expect(s.getCell("I2").value).toBe(1299); expect(s.getCell("M2").text).toBe("Jake Tirana");
 });
-test("formula-like GCash description is inert text", () => {
-  const c = cell("GCash Transactions", 7, "Description");
-  expect(c.text).toBe("'@untrusted-description");
-  expect(c.formula).toBeUndefined();
+test("leading-zero references stay text in both files", () => {
+  expect(p(2, 6).value).toBe("0045276500984"); expect(p(9, 6).value).toBe("0000203966985");
+  expect(sheet(gcash, "September").getCell("G2").value).toBe("0045276500984");
+  expect(sheet(gcash, "October").getCell("G2").value).toBe("0000203966985");
 });
-test.each(["=SUM(1,2)", "+CMD", "-1+2", "@SUM(A1)", "\t=HYPERLINK(\"x\")"])("safe-text helper neutralizes %s", (value) => expect(safeText(value)).toBe(`'${value}`));
-test("valid dates are Excel dates; invalid and null dates stay blank", () => {
-  expect(cell("All Payments", 2, "Payment Date").value).toBeInstanceOf(Date);
-  expect(cell("All Payments", 4, "Payment Date").value).toBeNull();
-  expect(cell("All Payments", 5, "Payment Date").value).toBeNull();
-  expect(excelDate("not a date")).toBeNull();
+test("unmatched GCash rows and ambiguous duplicates remain with blank customers", () => {
+  expect(sheet(gcash, "October").getCell("G3").text).toBe("UNMATCHED");
+  for (const [name, row] of [["September", 3], ["September", 4], ["October", 3], ["October", 4]] as const) expect(sheet(gcash, name).getCell(row, 13).text).toBe("");
 });
-test("invalid original calendar date cannot export as a silently rolled-over date", () => {
-  expect(sourceCheckedDate("2026-03-02", { source: { "payment date": "2026-02-30" } }, "payment date")).toBeNull();
-  expect(sourceCheckedDate("2026-09-21", { source: { "payment date": "2026-09-21" } }, "payment date")).toBe("2026-09-21");
+test("export uses persisted row mapping even when result arrays are shuffled", async () => {
+  const data = structuredClone(fixture.data); data.payments.reverse(); data.gcash.reverse();
+  const result = await buildOperationalWorkbook(data, "payments");
+  expect(sheet(result, "Payment Testing").getCell("M2").text).toBe("VERIFIED");
+  expect(sheet(result, "Payment Testing").getCell("M3").text).toBe("NEEDS REVIEW");
 });
-test("filename uses a sanitized unambiguous billing period", () => {
-  const fixture = exportFixture();
-  expect(exportFilename(fixture)).toBe("Payment_Verification_Sep_2026.xlsx");
-  fixture.payments.forEach((p) => { p.billing_period = '../Sep\\2026\r\n"unsafe'; });
-  expect(exportFilename(fixture)).toMatch(/^Payment_Verification_[A-Za-z0-9_]+\.xlsx$/);
+test("source hyperlink allowlist retains safe proof, strips unsafe link without losing text", () => {
+  expect(p(2, 11).hyperlink).toBe("https://example.com/proof.png");
+  expect(p(4, 11).hyperlink).toBeUndefined(); expect(p(4, 11).text).toBe("Unsafe receipt");
 });
-test("mixed or missing billing periods use deterministic run-date fallback", () => {
-  const fixture = exportFixture();
-  const first = fixture.payments[0]; if (first) first.billing_period = null;
-  expect(exportFilename(fixture)).toBe("Payment_Verification_2026-09-23.xlsx");
+test("source literal formula-looking text is preserved as a non-formula string", () => {
+  expect(p(2, 8).value).toBe("=original literal text"); expect(p(2, 8).formula).toBeUndefined();
+  expect(p(10, 1).value).toBe('=HYPERLINK("https://example.com")'); expect(p(10, 1).formula).toBeUndefined();
 });
-test("empty categories still include their headers", () => {
-  const fixture = exportFixture(); fixture.payments = []; fixture.gcash = [];
-  Object.assign(fixture.run, { total: 0, verified: 0, needs_review: 0, cash: 0, bank: 0 });
-  const book = buildVerificationWorkbook(fixture);
-  for (const name of REQUIRED_SHEETS.slice(1)) expect(book.getWorksheet(name)?.rowCount).toBe(1);
+test("original executable formulas are frozen to cached values", () => { expect(p(13, 8).value).toBe(2); expect(p(13, 8).formula).toBeUndefined(); });
+test("new matched-customer annotation is formula-safe", async () => {
+  const data = structuredClone(fixture.data); const payment = data.payments[0]; const transaction = data.gcash[0];
+  if (!payment || !transaction) throw new Error("Missing fixture"); payment.customer = "=CMD()"; transaction.matched_customer = payment.customer;
+  const book = await buildOperationalWorkbook(data, "gcash");
+  expect(sheet(book, "September").getCell("M2").value).toBe("'=CMD()");
+  expect(sheet(book, "September").getCell("M2").formula).toBeUndefined();
 });
-test("legacy selected source fields are retained when original column metadata is unavailable", () => {
-  const fixture = exportFixture(); fixture.gcash.forEach((g) => { g.raw_data = { sheet_name: "Legacy", source: { date: g.transaction_date, description: g.description, ref: 45276500984, debit: g.amount_decimal, credit: "" } }; });
-  const s = buildVerificationWorkbook(fixture).getWorksheet("GCash Transactions");
-  expect(s?.getRow(1).getCell(5).text).toBe("Reference");
-  expect(s?.getRow(2).getCell(5).text).toBe("0045276500984");
+test.each(["=SUM(1,2)", "+CMD", "-1+2", "@SUM(A1)", "\t=HYPERLINK(\"x\")"])("annotation safeText neutralizes %s", (value) => expect(safeText(value)).toBe(`'${value}`));
+test("filenames use sanitized original filenames with the requested suffix", () => {
+  expect(exportFilename(fixture.data, "payments")).toBe("Payment Testing - Verified.xlsx");
+  expect(exportFilename(fixture.data, "gcash")).toBe("Gcash Testing - Matched.xlsx");
+  const data = exportFixture(); data.run.payment_filename = '../bad\r\n"name.xlsx';
+  expect(exportFilename(data, "payments")).toBe("bad___name - Verified.xlsx");
 });
-test("legacy concatenated source is retained, not destructively split", () => {
-  const fixture = exportFixture(); fixture.gcash.forEach((g) => { g.raw_data = { source: { col0: `2026-09-21 Transfer ${g.reference_number} ${g.amount_decimal}` } }; });
-  const s = buildVerificationWorkbook(fixture).getWorksheet("GCash Transactions");
-  expect(s?.getRow(1).getCell(3).text).toBe("Original transaction text");
-  expect(s?.getRow(2).getCell(3).text).toContain("0045276500984");
-  expect(s?.getRow(2).getCell(s.columnCount).text).toBe("Jake Tirana");
+test("legacy fallback is explicitly recovered, with no fake analytical sheets", async () => {
+  const data = exportFixture(); const book = await buildOperationalWorkbook(data, "payments");
+  expect(book.worksheets.map((s) => s.name)).toEqual(["Recovered Payment Records"]);
+  expect(book.description).toContain("Original workbook structure/formatting");
 });
-test("extreme amounts use exact text rather than losing Excel numeric precision", () => {
-  const c = new ExcelJS.Workbook().addWorksheet("Test").getCell("A1");
-  moneyCell(c, "90071992547409.91");
-  expect(c.value).toBe("90071992547409.91");
-  expect(c.type).toBe(ExcelJS.ValueType.String);
+test("legacy GCash retained layouts remain separate and no customer is guessed", async () => {
+  const book = await buildOperationalWorkbook(exportFixture(), "gcash");
+  expect(book.worksheets.map((s) => s.name)).toEqual(["September", "October"]);
+  expect(sheet(book, "September").getCell("M2").text).toBe("Jake Tirana");
+  expect(sheet(book, "September").getCell("M3").text).toBe("");
 });
-describe.each(["business_id", "verification_run_id"])("export scope guard %s", (key) => {
-  test("rejects foreign payment scope", () => {
-    const fixture = exportFixture(); const p = fixture.payments[0]; if (p) Reflect.set(p, key, "foreign");
-    expect(() => buildVerificationWorkbook(fixture)).toThrow("scope mismatch");
-  });
-  test("rejects foreign GCash scope", () => {
-    const fixture = exportFixture(); const g = fixture.gcash[0]; if (g) Reflect.set(g, key, "foreign");
-    expect(() => buildVerificationWorkbook(fixture)).toThrow("scope mismatch");
+describe.each(["business_id", "verification_run_id"])("scope guard %s", (key) => {
+  test.each(["payments", "gcash"] as const)("rejects foreign %s rows", async (kind) => {
+    const data = exportFixture(); const row = data[kind][0]; if (row) Reflect.set(row, key, "foreign");
+    await expect(buildOperationalWorkbook(data, kind)).rejects.toThrow("scope mismatch");
   });
 });
-test("fabricated manual-only transaction association fails closed", () => {
-  const fixture = exportFixture(); const p = fixture.payments[6]; if (p) p.gcash_transaction_id = transactionId(5);
-  expect(() => buildVerificationWorkbook(fixture)).toThrow("inconsistent persisted relationship");
+test("manual-only fabricated relationship fails closed", async () => {
+  const data = exportFixture(); const payment = data.payments[6]; if (payment) payment.gcash_transaction_id = transactionId(5);
+  await expect(buildOperationalWorkbook(data, "gcash")).rejects.toThrow("persisted relationship");
 });
-test("over-limit export rejects rather than truncating data", () => {
-  const fixture = exportFixture(); fixture.payments = Array.from({ length: 20001 }, () => fixture.payments[0]).filter((p) => p !== undefined);
-  expect(() => buildVerificationWorkbook(fixture)).toThrow("20,000");
+test("duplicate row provenance fails instead of overwriting annotations", async () => {
+  const data = structuredClone(fixture.data); const row = data.payments[1]; if (row) row.row_index = 2;
+  await expect(buildOperationalWorkbook(data, "payments")).rejects.toThrow("provenance");
 });
-test("Excel's maximum text length is enforced without silent truncation", () => expect(() => safeText("x".repeat(32768))).toThrow("32,767"));
+test("retention captures original bytes exactly", () => expect(captureSourceWorkbook(fixture.paymentBytes, "payments").base64).toBe(fixture.paymentBytes.toString("base64")));
+test.each([7, 1])("GCash transactions starting at row %s before a late header retain source positions and matches", async (startRow) => {
+  const data = structuredClone(fixture.data);
+  const source = new ExcelJS.Workbook(); const s = source.addWorksheet("GCASH TESTING ");
+  if (startRow > 1) s.getCell("A1").value = "Statement cover information";
+  const positions = [startRow, 20, 35, 80, 150, 175];
+  data.gcash.forEach((g, i) => {
+    const row = positions[i]; if (!row) throw new Error("Missing position");
+    g.row_index = row; g.raw_data = { sheet_name: s.name };
+    s.getCell(row, 1).value = "2026-09-21 08:00 AM";
+    s.getCell(row, 7).value = g.reference_number;
+    s.getCell(row, 9).value = Number(g.amount_decimal);
+  });
+  s.getCell("A149").value = "DATE AND TIME"; s.getCell("G149").value = "REF NO";
+  s.getCell("I149").value = "AMOUNT"; s.getCell("A180").value = "Original footer";
+  data.sources = { gcash: captureSourceWorkbook(Buffer.from(await source.xlsx.writeBuffer()), "gcash") };
+  expect(data.sources.gcash?.sheets[0]?.headerRow).toBe(149);
+  const result = new ExcelJS.Workbook(); await result.xlsx.load((await operationalWorkbookBuffer(data, "gcash")).buffer);
+  const output = sheet(result, s.name); const shift = startRow === 1 ? 1 : 0;
+  expect(output.getCell("J1").text).toBe("Matched Customer");
+  for (let row = 1; row <= 180; row++) for (let col = 1; col <= 9; col++) expect(output.getCell(row + shift, col).value).toEqual(s.getCell(row, col).value);
+  expect(output.getCell(startRow + shift, 7).text).toBe("0045276500984");
+  expect(output.getCell(startRow + shift, 9).value).toBe(1299);
+  expect(output.getCell(startRow + shift, 10).text).toBe("Jake Tirana");
+  for (const row of [20, 35, 150, 175]) expect(output.getCell(row + shift, 10).text).toBe("");
+  expect(output.rowCount).toBe(180 + shift);
+});
+test("source row offsets and a headerless GCash sheet are mapped without rematching", async () => {
+  const data = structuredClone(fixture.data);
+  data.payments = data.payments.slice(0, 1); data.gcash = data.gcash.slice(0, 1);
+  Object.assign(data.run, { total: 1, verified: 1, needs_review: 0, cash: 0, bank: 0 });
+  const sourceP = new ExcelJS.Workbook(); const p = sourceP.addWorksheet("Offset Payments");
+  p.getRow(5).getCell(2).value = "Customer"; p.getRow(5).getCell(3).value = "Amount";
+  p.getCell("B6").value = "Jake Tirana"; p.getCell("C6").value = 1300;
+  const sourceG = new ExcelJS.Workbook(); sourceG.addWorksheet("Headerless").addRow(["0045276500984", 1299]);
+  const row = data.gcash[0]; if (row) { row.row_index = 1; row.raw_data = { sheet_name: "Headerless" }; }
+  data.sources = {
+    payments: captureSourceWorkbook(Buffer.from(await sourceP.xlsx.writeBuffer()), "payments"),
+    gcash: captureSourceWorkbook(Buffer.from(await sourceG.xlsx.writeBuffer()), "gcash"),
+  };
+  const outputP = await buildOperationalWorkbook(data, "payments");
+  expect(sheet(outputP, "Offset Payments").getCell("D5").text).toBe("Verification Status");
+  expect(sheet(outputP, "Offset Payments").getCell("D6").text).toBe("VERIFIED");
+  expect(sheet(outputP, "Offset Payments").getCell("C6").value).toBe(1300);
+  const outputG = await buildOperationalWorkbook(data, "gcash");
+  expect(sheet(outputG, "Headerless").getCell("C1").text).toBe("Matched Customer");
+  expect(sheet(outputG, "Headerless").getCell("A2").text).toBe("0045276500984");
+  expect(sheet(outputG, "Headerless").getCell("C2").text).toBe("Jake Tirana");
+});
+test("legacy XLS input converts to XLSX without losing original values or worksheet name", async () => {
+  const data = structuredClone(fixture.data);
+  const original = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(original, XLSX.utils.aoa_to_sheet([
+    ["Customer", "Amount", "Reference #"], ...data.payments.map((p) => [p.customer, Number(p.amount_decimal), p.reference_number]),
+  ]), "Original XLS");
+  data.sources = { payments: captureSourceWorkbook(XLSX.write(original, { type: "buffer", bookType: "xls" }), "payments") };
+  const result = await buildOperationalWorkbook(data, "payments");
+  expect(sheet(result, "Original XLS").getCell("B2").value).toBe(1300);
+  expect(sheet(result, "Original XLS").getCell("C2").value).toBe("0045276500984");
+  expect(sheet(result, "Original XLS").getCell("D2").text).toBe("VERIFIED");
+});
+test("over-limit data is rejected, not truncated", async () => {
+  const data = exportFixture(); data.payments = Array.from({ length: 20001 }, () => data.payments[0]).filter((p) => p !== undefined);
+  await expect(buildOperationalWorkbook(data, "payments")).rejects.toThrow("20,000");
+});
+test("extreme amounts can be emitted exactly as text", () => {
+  const cell = new ExcelJS.Workbook().addWorksheet("Test").getCell("A1"); moneyCell(cell, "90071992547409.91"); expect(cell.value).toBe("90071992547409.91");
+});
+test("new annotation text length limit is enforced", () => expect(() => safeText("x".repeat(32768))).toThrow("32,767"));

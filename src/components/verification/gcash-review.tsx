@@ -53,9 +53,9 @@ export function GcashReview({
         duplicateTransactionCount={result.summary?.duplicateTransactionCount ?? 0}
       />
       {result.sheetsProcessed && result.sheetsProcessed.length > 1 && (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/60">
           <CardContent className="pt-6">
-            <p className="text-sm text-blue-800">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
               Processed {result.sheetsProcessed.length} sheets. Transactions have been
               auto-detected per transaction.
             </p>
@@ -63,12 +63,12 @@ export function GcashReview({
         </Card>
       )}
       {result.errors && result.errors.length > 0 && (
-        <Card className="border-amber-200">
+        <Card className="border-amber-200 dark:border-amber-800">
           <CardContent className="pt-6">
             <p className="mb-2 text-sm font-medium">Validation Errors ({result.errors.length})</p>
             <div className="max-h-48 space-y-1 overflow-y-auto text-xs">
               {result.errors.map((error, index) => (
-                <div key={index} className="font-mono text-amber-700">
+                <div key={index} className="font-mono text-amber-700 dark:text-amber-200">
                   Row {error.rowIndex}: {error.field} — {error.message}
                 </div>
               ))}
@@ -77,12 +77,12 @@ export function GcashReview({
         </Card>
       )}
       {result.warnings && result.warnings.length > 0 && (
-        <Card className="border-blue-200">
+        <Card className="border-blue-200 dark:border-blue-800">
           <CardContent className="pt-6">
             <p className="mb-2 text-sm font-medium">Import Warnings ({result.warnings.length})</p>
             <div className="max-h-48 space-y-1 overflow-y-auto text-xs">
               {result.warnings.map((warning, index) => (
-                <div key={index} className="font-mono text-blue-700">
+                <div key={index} className="font-mono text-blue-700 dark:text-blue-200">
                   {warning.sheetName ? `${warning.sheetName}, ` : ""}Row {warning.rowIndex}: {warning.message}
                 </div>
               ))}

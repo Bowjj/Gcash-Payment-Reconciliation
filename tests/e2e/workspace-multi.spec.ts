@@ -50,14 +50,14 @@ async function createFirstWorkspace(page: import("@playwright/test").Page, name:
   await page.getByLabel("Workspace name").fill(name);
   await page.getByRole("button", { name: "Create workspace" }).click();
   await expect(page.getByText("Active Workspace")).toBeVisible();
-  await expect(page.locator("main").getByText(name)).toBeVisible();
+  await expect(page.locator("main").getByText(name, { exact: true })).toBeVisible();
 }
 
 async function createWorkspaceFromSettings(page: import("@playwright/test").Page, name: string) {
   await page.goto("/settings");
   await page.getByLabel("Workspace name").fill(name);
   await page.getByRole("button", { name: "Create workspace" }).click();
-  await expect(page.locator("main").getByText(name)).toBeVisible();
+  await expect(page.locator("main").getByRole("list").getByText(name, { exact: true })).toBeVisible();
 }
 
 async function switchWorkspace(page: import("@playwright/test").Page, from: string, to: string) {

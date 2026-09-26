@@ -42,7 +42,7 @@ export function ImportSummary({
           <CardTitle>Valid</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-semibold text-green-600">{validCount}</p>
+          <p className="text-2xl font-semibold text-green-700 dark:text-green-300">{validCount}</p>
           <p className="text-xs text-muted-foreground">rows ready to import</p>
         </CardContent>
       </Card>
@@ -52,7 +52,7 @@ export function ImportSummary({
           <CardTitle>Attention</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-semibold text-amber-600">{errorCount}</p>
+          <p className="text-2xl font-semibold text-amber-700 dark:text-amber-300">{errorCount}</p>
           <p className="text-xs text-muted-foreground">rows need attention</p>
         </CardContent>
       </Card>
@@ -76,7 +76,7 @@ export function ImportSummary({
               <span className="font-mono">{bankCount}</span>
             </div>
             {unknownMethodCount > 0 && (
-              <div className="flex justify-between text-amber-600">
+              <div className="flex justify-between text-amber-700 dark:text-amber-300">
                 <span>Unknown</span>
                 <span className="font-mono">{unknownMethodCount}</span>
               </div>
@@ -86,12 +86,12 @@ export function ImportSummary({
       </Card>
 
       {missingHeaders.length > 0 && (
-        <Card className="col-span-full border-amber-200 bg-amber-50">
+        <Card className="col-span-full border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/60">
           <CardContent className="pt-6">
-            <p className="mb-1 text-sm font-medium text-amber-800">
+            <p className="mb-1 text-sm font-medium text-amber-800 dark:text-amber-200">
               Missing expected headers
             </p>
-            <p className="text-xs text-amber-700">
+            <p className="text-xs text-amber-700 dark:text-amber-200">
               {missingHeaders.join(", ")}
             </p>
           </CardContent>

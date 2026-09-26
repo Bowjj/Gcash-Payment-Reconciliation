@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 
 import { parseGcashRow } from "./row-parser";
+import { annotationColumns } from "./annotations";
 import type { GcashParseIssue, GcashParseResult, GcashParsedRow } from "./types";
 
 export type { GcashParseIssue, GcashParseResult, GcashParsedRow } from "./types";
@@ -34,13 +35,21 @@ export function parseGcashWorkbook(buffer: Buffer): GcashParseResult {
     if (rawRows.length === 0) continue;
     sheetsProcessed.push(sheetName);
     const sourceHeaders = formattedRows.find((row) => String(row[0] ?? "").trim().toUpperCase().startsWith("DATE AND TIME")) ?? [];
+    const annotations = annotationColumns(formattedRows);
+    const excluded = new Set([...annotations.customer, ...annotations.conflict]);
+    const labeledAmounts = sourceHeaders.flatMap((value, column) => /^(amount|debit|credit|debit amount|credit amount)$/i.test(String(value ?? "").trim()) ? [column] : []);
+    // Retain legacy fixed-layout support when financial labels are unavailable,
+    // but never consume known application annotations as financial amounts.
+    const legacyUnlabeled = [8, 10].filter((column) => !String(sourceHeaders[column] ?? "").trim());
+    const amountColumns = [...new Set(labeledAmounts.length ? [...labeledAmounts, ...legacyUnlabeled] : [8, 10])]
+      .filter((column) => !excluded.has(column));
 
     for (let index = 0; index < rawRows.length; index++) {
       const rawRow = rawRows[index];
       if (!rawRow) continue;
       const formattedRow = formattedRows[index] ?? [];
       const rowIndex = index + 1;
-      const result = parseGcashRow(rawRow, formattedRow);
+      const result = parseGcashRow(rawRow, formattedRow, amountColumns);
 
       switch (result.kind) {
         case "skip":

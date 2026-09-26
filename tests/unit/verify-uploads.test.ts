@@ -58,6 +58,10 @@ test("reparses original files, atomically imports all rows, then reconciles pers
   }));
   expect(rpc.mock.calls[0]?.[1].p_payments).toHaveLength(74);
   expect(rpc.mock.calls[0]?.[1].p_gcash).toHaveLength(82);
+  expect(rpc.mock.calls[0]?.[1].p_payment_source).toMatchObject({ version: 1, sheets: [expect.objectContaining({ name: "Sheet1", rowOffset: 0, headerRow: 1 })] });
+  const originalFile = form.get("payment");
+  if (!(originalFile instanceof File)) throw new Error("Missing fixture file");
+  expect(Buffer.from(rpc.mock.calls[0]?.[1].p_payment_source.base64, "base64")).toEqual(Buffer.from(await originalFile.arrayBuffer()));
   expect(rpc.mock.calls[2]?.[1].p_results).toHaveLength(74);
   expect(result).toMatchObject({ summary: { total: 74, verified: 74, needsReview: 0, cash: 0, bank: 0 } });
 });

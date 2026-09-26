@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { gcashResultSchema, paymentDetailSchema, runSummarySchema } from "@/lib/verification/results-data";
+import { sourceWorkbookSchema } from "./source-workbook";
 
 export const exportPaymentSchema = paymentDetailSchema.safeExtend({ business_id: z.uuid(), verification_run_id: z.uuid() });
 export const exportGcashSchema = gcashResultSchema.extend({ business_id: z.uuid(), verification_run_id: z.uuid(), matched_payment_id: z.uuid().nullable() });
 export const exportDataSchema = z.object({
   workspaceName: z.string(), run: runSummarySchema, payments: z.array(exportPaymentSchema), gcash: z.array(exportGcashSchema),
+  sources: z.object({ payments: sourceWorkbookSchema.optional(), gcash: sourceWorkbookSchema.optional() }).optional(),
 });
 export type ExportData = z.infer<typeof exportDataSchema>;
 export type ExportPayment = z.infer<typeof exportPaymentSchema>;

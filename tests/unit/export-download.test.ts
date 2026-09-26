@@ -16,12 +16,12 @@ beforeEach(async () => {
   authorize.mockResolvedValue({ workspace: { id: exportBusinessId, name: data.workspaceName }, run: data.run, supabase: await createClient() });
 });
 test("download authorizes selected run and uses one scoped data RPC", async () => {
-  const response = await GET(new Request(`http://localhost/verification/${exportRunId}/export?business_id=forged`), context());
+  const response = await GET(new Request(`http://localhost/verification/${exportRunId}/export?file=payments&business_id=forged`), context());
   expect(authorize).toHaveBeenCalledWith(exportRunId);
   expect(rpc).toHaveBeenCalledExactlyOnceWith("get_verification_export", { p_business_id: exportBusinessId, p_run_id: exportRunId });
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe(XLSX_MIME);
-  expect(response.headers.get("content-disposition")).toBe('attachment; filename="Payment_Verification_Sep_2026.xlsx"');
+  expect(response.headers.get("content-disposition")).toBe('attachment; filename="PAYMENTS - Verified.xlsx"');
   expect(response.headers.get("cache-control")).toContain("no-store");
   expect(response.headers.get("vary")).toBe("Cookie");
   expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(1000);
@@ -39,13 +39,17 @@ test("server snapshot with a different run is rejected", async () => {
 test("foreign workspace rows fail closed before generation", async () => {
   const data = exportFixture(); const g = data.gcash[0]; if (g) g.business_id = "10000000-0000-4000-8000-000000000099";
   rpc.mockResolvedValue({ data, error: null });
-  const response = await GET(new Request("http://localhost/export"), context());
+  const response = await GET(new Request("http://localhost/export?file=payments"), context());
   expect(response.status).toBe(500);
   expect(response.headers.get("content-type")).not.toBe(XLSX_MIME);
 });
 test("oversized runs return a clear 413 without a partial workbook", async () => {
   rpc.mockResolvedValue({ data: null, error: { code: "PT413", message: "Export supports at most 20,000 combined source rows." } });
-  const response = await GET(new Request("http://localhost/export"), context());
+  const response = await GET(new Request("http://localhost/export?file=gcash"), context());
   expect(response.status).toBe(413);
   expect(await response.json()).toMatchObject({ error: expect.stringContaining("20,000") });
+});
+test.each(["", "?file=summary", "?file=verified"])("obsolete generic/category export is unavailable: %s", async (query) => {
+  expect((await GET(new Request(`http://localhost/export${query}`), context())).status).toBe(400);
+  expect(rpc).not.toHaveBeenCalled();
 });

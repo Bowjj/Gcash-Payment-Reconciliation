@@ -1,4 +1,9 @@
-# Sprint 6 Excel report
+# Sprint 6 Excel report (superseded)
+
+> Sprint 6.5 replaces this seven-sheet analytical workbook. New runs now offer
+> two source-preserving operational downloads: `Payment Records - Verified.xlsx`
+> and `GCash - Matched.xlsx`. This document is retained only as historical Sprint
+> 6 design documentation; see `docs/sprint-6.5-ui-polish.md` for current behavior.
 
 ## Download and authorization
 

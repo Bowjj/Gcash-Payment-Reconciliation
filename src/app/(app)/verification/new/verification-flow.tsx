@@ -62,7 +62,7 @@ function FileSummary({ result }: { result: ParseResult }) {
       </dl>
       {(!result.success || !result.validCount) && <p role="alert" className="text-destructive">No valid rows. Replace this file to continue.</p>}
       {!!((result.errors?.length ?? 0) + (result.warnings?.length ?? 0)) && (
-        <details className="rounded-md border border-amber-300 p-3">
+        <details className="rounded-md border border-amber-300 p-3 dark:border-amber-700">
           <summary className="cursor-pointer font-medium">Validation messages</summary>
           <p className="my-2 text-muted-foreground">Invalid rows are excluded. Warnings are retained for review; only valid rows will be saved.</p>
           <ul className="max-h-48 space-y-1 overflow-auto text-xs">

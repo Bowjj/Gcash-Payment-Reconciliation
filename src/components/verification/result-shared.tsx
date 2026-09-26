@@ -3,14 +3,14 @@ import { proofHref, statusLabels } from "@/lib/verification/review";
 import type { ReconciliationStatus } from "@/lib/verification/reconcile";
 import type { RunSummary } from "@/lib/verification/results-data";
 
-const statusStyles: Record<ReconciliationStatus, string> = {
-  VERIFIED: "border-green-200 bg-green-50 text-green-800",
-  NEEDS_REVIEW: "border-orange-200 bg-orange-50 text-orange-800",
+export const statusStyles: Record<ReconciliationStatus, string> = {
+  VERIFIED: "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/60 dark:text-green-200",
+  NEEDS_REVIEW: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-200",
   CASH: "border-border bg-muted text-foreground",
-  BANK: "border-blue-200 bg-blue-50 text-blue-800",
+  BANK: "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-200",
 };
 export function ResultStatus({ status, manual = false }: { status: ReconciliationStatus; manual?: boolean }) {
-  return <span className={`inline-flex flex-wrap gap-1 rounded-md border px-2 py-1 text-xs font-medium ${statusStyles[status]}`}>
+  return <span data-status={status} className={`inline-flex flex-wrap gap-1 rounded-md border px-2 py-1 text-xs font-medium ${statusStyles[status]}`}>
     {statusLabels[status]}{manual ? " · manually reviewed" : ""}
   </span>;
 }

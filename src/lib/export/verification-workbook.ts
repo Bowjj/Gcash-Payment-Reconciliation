@@ -1,135 +1,231 @@
 import ExcelJS from "exceljs";
-import { dateCell, excelDate, moneyCell, proofCell, sourceCheckedDate, textCell } from "./cells";
+import * as XLSX from "xlsx";
+import { z } from "zod";
+import { proofHref } from "@/lib/verification/review";
+import { textCell } from "./cells";
 import { type ExportData, type ExportPayment, ExportLimitError, MAX_EXPORT_CELLS, MAX_EXPORT_ROWS } from "./export-data";
-import { gcashSource, type SourceColumn } from "./gcash-source";
+import { type ExportKind, type SourceWorkbook } from "./source-workbook";
+import { annotateGcashSheet, countAnnotationConflicts, existingCustomerHeaderRow } from "./gcash-annotations";
 
-export const PAYMENT_HEADERS = ["Customer", "Account", "Billing Period", "Amount", "Method", "Reference #", "Payment Date", "Notes", "Paid By", "Received By", "Photo / Proof", "Created At", "Automated Status", "Automated Reason", "Final Status", "Manual Review", "Manual Note", "Reviewed By", "Reviewed At (UTC)", "Matched GCash Reference", "Matched GCash Amount"];
-export const REQUIRED_SHEETS = ["Summary", "All Payments", "Verified", "Needs Review", "Cash", "Bank", "GCash Transactions"];
-const fills: Record<string, string> = { VERIFIED: "FFDCFCE7", NEEDS_REVIEW: "FFFFEDD5", CASH: "FFF3F4F6", BANK: "FFDBEAFE" };
+export const PAYMENT_ANNOTATIONS = ["Verification Status", "Verification Note"];
+export const STATUS_COLORS: Record<string, { fill: string; text: string }> = {
+  VERIFIED: { fill: "FFDCFCE7", text: "FF166534" },
+  NEEDS_REVIEW: { fill: "FFFEE2E2", text: "FF991B1B" },
+  CASH: { fill: "FFDBEAFE", text: "FF1E40AF" },
+  BANK: { fill: "FFFEF9C3", text: "FF854D0E" },
+  UNKNOWN: { fill: "FFFFEDD5", text: "FF9A3412" },
+};
+const envelopeSchema = z.object({ sheet_name: z.string().optional(), source: z.record(z.string(), z.unknown()).optional() });
+const gcashCellsSchema = z.object({ headers: z.array(z.unknown()), cells: z.array(z.unknown()) });
 
-export function exportFilename(data: ExportData) {
-  const periods = new Set(data.payments.map((p) => p.billing_period?.trim() ?? ""));
-  const period = periods.size === 1 ? [...periods][0] : "";
-  const sanitized = period?.normalize("NFKC").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
-  const date = excelDate(data.run.completed_at ?? data.run.created_at);
-  const fallback = date ? date.toISOString().slice(0, 10) : data.run.id.replace(/[^a-f0-9]/gi, "").slice(0, 8);
-  return `Payment_Verification_${sanitized || fallback || "Report"}.xlsx`;
+export function exportFilename(data: ExportData, kind: ExportKind) {
+  const original = kind === "payments" ? data.run.payment_filename : data.run.gcash_filename;
+  const fallback = kind === "payments" ? "Payment Records" : "GCash";
+  const base = (original ?? fallback).replace(/^.*[\\/]/, "").replace(/\.(xlsx?|xlsm)$/i, "")
+    .normalize("NFKC").replace(/[^A-Za-z0-9 _().-]/g, "_").replace(/^[ .]+|[ .]+$/g, "").slice(0, 100) || fallback;
+  const safe = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(base) ? `_${base}` : base;
+  return `${safe} - ${kind === "payments" ? "Verified" : "Matched"}.xlsx`;
 }
 
-function prepareSheet(book: ExcelJS.Workbook, name: string, headers: string[]) {
-  const sheet = book.addWorksheet(name);
-  const row = sheet.addRow([]);
-  headers.forEach((header, index) => textCell(row.getCell(index + 1), header));
-  row.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF243746" } };
-  row.height = 32;
-  row.alignment = { vertical: "middle", wrapText: true };
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
-  headers.forEach((header, index) => {
-    const column = sheet.getColumn(index + 1);
-    column.width = /Notes|Description|Reason|Proof|Customer|transaction text/.test(header) ? 34 : 23;
-    column.alignment = { vertical: "top", wrapText: true };
-  });
-  return sheet;
+export function verificationNote(p: ExportPayment) {
+  if (p.manual_status) return `Manually marked ${p.effective_status === "VERIFIED" ? "verified" : "needs review"}.${p.manual_note ? ` ${p.manual_note}` : ""}`;
+  const notes: Record<string, string> = {
+    REFERENCE_MATCH: "Exact reference found", REFERENCE_NOT_FOUND: "Reference not found",
+    MISSING_REFERENCE: "Missing reference", DUPLICATE_REFERENCE: "Duplicate reference",
+    DUPLICATE_PAYMENT_REFERENCE: "Duplicate payment reference", CASH_PAYMENT: "Cash payment",
+    BANK_MANUAL_VERIFICATION: "Bank payment", UNKNOWN_PAYMENT_METHOD: "Unknown payment method",
+  };
+  return notes[p.automated_reason] ?? "Review required";
 }
 
-export function buildVerificationWorkbook(data: ExportData): ExcelJS.Workbook {
+function validateSnapshot(data: ExportData) {
   if (data.payments.length + data.gcash.length > MAX_EXPORT_ROWS) throw new ExportLimitError("Export supports at most 20,000 combined source rows.");
-  for (const row of [...data.payments, ...data.gcash]) {
-    if (row.business_id !== data.run.business_id || row.verification_run_id !== data.run.id) throw new Error("Export scope mismatch.");
-  }
+  if ([...data.payments, ...data.gcash].some((r) => r.business_id !== data.run.business_id || r.verification_run_id !== data.run.id)) throw new Error("Export scope mismatch.");
   if (new Set(data.payments.map((p) => p.id)).size !== data.payments.length || new Set(data.gcash.map((g) => g.id)).size !== data.gcash.length) throw new Error("Duplicate export source IDs.");
-  const counts = {
-    total: data.payments.length,
-    verified: data.payments.filter((p) => p.effective_status === "VERIFIED").length,
-    needs_review: data.payments.filter((p) => p.effective_status === "NEEDS_REVIEW").length,
-    cash: data.payments.filter((p) => p.effective_status === "CASH").length,
-    bank: data.payments.filter((p) => p.effective_status === "BANK").length,
-  };
+  const counts = { total: data.payments.length, verified: 0, needs_review: 0, cash: 0, bank: 0 };
+  for (const p of data.payments) {
+    if (p.effective_status === "VERIFIED") counts.verified++;
+    else if (p.effective_status === "NEEDS_REVIEW") counts.needs_review++;
+    else if (p.effective_status === "CASH") counts.cash++;
+    else if (p.effective_status === "BANK") counts.bank++;
+  }
   if (Object.entries(counts).some(([key, value]) => Reflect.get(data.run, key) !== value)) throw new Error("Export snapshot counts are inconsistent.");
-  const gcashById = new Map(data.gcash.map((g) => [g.id, g]));
-  const linkedCustomers = new Map<string, string>();
-  for (const payment of data.payments) {
-    if (!payment.gcash_transaction_id) continue;
-    const g = gcashById.get(payment.gcash_transaction_id);
-    if (!g || g.matched_payment_id !== payment.id || g.matched_customer !== payment.customer || payment.automated_status !== "VERIFIED" || payment.automated_reason !== "REFERENCE_MATCH" || linkedCustomers.has(g.id)) {
-      throw new Error("Export contains an inconsistent persisted relationship.");
-    }
-    linkedCustomers.set(g.id, payment.customer);
+  const byId = new Map(data.gcash.map((g) => [g.id, g]));
+  const customers = new Map<string, string>();
+  for (const p of data.payments) {
+    if (!p.gcash_transaction_id) continue;
+    const g = byId.get(p.gcash_transaction_id);
+    if (!g || g.matched_payment_id !== p.id || g.matched_customer !== p.customer || p.automated_status !== "VERIFIED"
+      || p.automated_reason !== "REFERENCE_MATCH" || customers.has(g.id)) throw new Error("Inconsistent persisted relationship.");
+    customers.set(g.id, p.customer);
   }
-  const sourceRows = [...data.gcash].sort((a, b) => a.source_order - b.source_order || a.row_index - b.row_index || a.id.localeCompare(b.id)).map(gcashSource);
-  const sourceColumns = new Map<string, SourceColumn>();
-  for (const source of sourceRows) for (const column of source.columns) if (!sourceColumns.has(column.key)) sourceColumns.set(column.key, column);
-  if (sourceColumns.size > 256) throw new ExportLimitError("Combined GCash source layouts exceed 256 columns.");
-  if (data.payments.length * PAYMENT_HEADERS.length * 2 + data.gcash.length * (sourceColumns.size + 3) > MAX_EXPORT_CELLS) {
-    throw new ExportLimitError("This report exceeds the 500,000-cell synchronous export limit.");
+  for (const g of data.gcash) if ((g.matched_payment_id || g.matched_customer) && !customers.has(g.id)) throw new Error("Inconsistent persisted relationship.");
+  return customers;
+}
+
+function sourceValue(cell: ExcelJS.Cell, value: unknown) {
+  // XLSX string cells are explicitly strings, never executable formulas. Original
+  // text is kept verbatim; newly written annotations use textCell/safeText instead.
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string" || value instanceof Date) cell.value = value;
+  else if (value === null || value === undefined) cell.value = null;
+  else cell.value = JSON.stringify(value);
+}
+function sanitizeWorkbook(book: ExcelJS.Workbook) {
+  let cells = 0;
+  for (const sheet of book.worksheets) {
+    cells += sheet.rowCount * (sheet.columnCount + 2);
+    if (cells > MAX_EXPORT_CELLS || sheet.columnCount > 16382) throw new ExportLimitError("Workbook exceeds the 500,000-cell export limit.");
+    sheet.eachRow((row) => row.eachCell((cell) => {
+      if (cell.type === ExcelJS.ValueType.Formula) sourceValue(cell, cell.result ?? null);
+      else if (cell.hyperlink && !proofHref(cell.hyperlink)) cell.value = cell.text;
+      // Keep original string data (including formula-looking strings) as text.
+    }));
   }
+}
+async function loadSource(source: SourceWorkbook) {
+  const bytes = Buffer.from(source.base64, "base64");
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new ExportLimitError("Invalid retained source size.");
   const book = new ExcelJS.Workbook();
-  book.creator = "Payment Reconciliation System";
-  book.created = excelDate(data.run.completed_at ?? data.run.created_at) ?? new Date("2000-01-01T00:00:00Z");
-  const summary = prepareSheet(book, "Summary", ["Verification Report", "Value"]);
-  summary.getColumn(1).width = 34;
-  summary.getColumn(2).width = 80;
-  const summaryRows: [string, string | number | null][] = [
-    ["Workspace / Business", data.workspaceName], ["Verification Date (UTC)", data.run.completed_at],
-    ["Payment Source Filename", data.run.payment_filename], ["GCash Source Filename", data.run.gcash_filename],
-    ["Total Payments", data.run.total], ["Verified", data.run.verified], ["Needs Review", data.run.needs_review], ["Cash", data.run.cash], ["Bank", data.run.bank],
-    ["Manual Review Count", data.payments.filter((p) => p.manual_status !== null).length],
-    ["Automatically Verified Count", data.payments.filter((p) => p.automated_status === "VERIFIED").length],
-    ["Counts", "Primary counts reflect final/effective status. Automated decisions remain in the payment sheets."],
-    ["GCash Source Layout", "Source worksheets are combined in source order with worksheet/row provenance. Original column layouts are combined in first-seen order; unavailable legacy columns and workbook formatting cannot be reconstructed."],
-    ["Matching Rule", "Persisted exact-reference relationships only. Amount differences do not affect verification. Manual status-only verification does not create a GCash customer link."],
-  ];
-  for (const [label, value] of summaryRows) {
-    const row = summary.addRow([]);
-    textCell(row.getCell(1), label);
-    if (label === "Verification Date (UTC)") dateCell(row.getCell(2), data.run.completed_at, true);
-    else if (typeof value === "number") row.getCell(2).value = value;
-    else textCell(row.getCell(2), value);
-    if (typeof value === "string" && value.length > 100) row.height = 58;
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    await book.xlsx.load(new Uint8Array(bytes).buffer);
+  } else {
+    // ExcelJS reads XLSX; SheetJS converts legacy XLS values/layouts to XLSX.
+    const legacy = XLSX.read(bytes, { type: "buffer", cellStyles: true, cellNF: true });
+    const converted: Buffer = XLSX.write(legacy, { type: "buffer", bookType: "xlsx", cellStyles: true });
+    await book.xlsx.load(new Uint8Array(converted).buffer);
   }
-  const addPayments = (name: string, payments: ExportPayment[]) => {
-    const sheet = prepareSheet(book, name, PAYMENT_HEADERS);
-    for (const p of payments) {
-      const g = p.gcash_transaction_id ? gcashById.get(p.gcash_transaction_id) : undefined;
-      const row = sheet.addRow([]);
-      const values = [p.customer, p.account, p.billing_period, null, p.method, p.reference_number, null, p.notes, p.paid_by, p.received_by, null, null,
-        p.automated_status, p.automated_reason, p.effective_status, p.manual_status ? "Yes" : "No", p.manual_note, p.reviewed_by, null, g?.reference_number, null];
-      values.forEach((value, i) => textCell(row.getCell(i + 1), value));
-      moneyCell(row.getCell(4), p.amount_decimal);
-      dateCell(row.getCell(7), sourceCheckedDate(p.payment_date, p.raw_data, "payment date"));
-      proofCell(row.getCell(11), p.photo_url);
-      dateCell(row.getCell(12), sourceCheckedDate(p.created_at_source, p.raw_data, "created at"));
-      dateCell(row.getCell(19), p.reviewed_at, true);
-      moneyCell(row.getCell(21), g?.amount_decimal ?? null);
-      row.getCell(15).fill = { type: "pattern", pattern: "solid", fgColor: { argb: fills[p.effective_status] ?? "FFFFFFFF" } };
-      row.height = 42;
-    }
-  };
-  const orderedPayments = [...data.payments].sort((a, b) => a.row_index - b.row_index || a.id.localeCompare(b.id));
-  addPayments("All Payments", orderedPayments);
-  addPayments("Verified", orderedPayments.filter((p) => p.effective_status === "VERIFIED"));
-  addPayments("Needs Review", orderedPayments.filter((p) => p.effective_status === "NEEDS_REVIEW"));
-  addPayments("Cash", orderedPayments.filter((p) => p.effective_status === "CASH"));
-  addPayments("Bank", orderedPayments.filter((p) => p.effective_status === "BANK"));
-  const columns = [...sourceColumns.values()];
-  const gcashSheet = prepareSheet(book, "GCash Transactions", ["Source Worksheet", "Source Row", ...columns.map((c) => c.label), "Matched Customer"]);
-  for (const source of sourceRows) {
-    const row = gcashSheet.addRow([]);
-    textCell(row.getCell(1), source.worksheet);
-    row.getCell(2).value = source.row.row_index;
-    columns.forEach((column, i) => {
-      const value = source.values.get(column.key);
-      if (column.kind === "money" && (typeof value === "string" || typeof value === "number")) moneyCell(row.getCell(i + 3), String(value));
-      else textCell(row.getCell(i + 3), value);
+  sanitizeWorkbook(book);
+  return book;
+}
+function addHeaders(sheet: ExcelJS.Worksheet, row: number, column: number, labels: string[]) {
+  labels.forEach((label, i) => {
+    const cell = sheet.getCell(row, column + i);
+    if (cell.isMerged || cell.value !== null) throw new Error("Annotation would overwrite source content.");
+    textCell(cell, label);
+    cell.font = { bold: true, color: { argb: "FF243746" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EEF3" } };
+    cell.alignment = { wrapText: true, vertical: "middle" };
+    sheet.getColumn(column + i).width = label === "Verification Note" ? 48 : 25;
+  });
+}
+function annotatePayment(sheet: ExcelJS.Worksheet, row: number, column: number, payment: ExportPayment) {
+  const cell = sheet.getCell(row, column);
+  textCell(cell, payment.effective_status.replaceAll("_", " "));
+  const color = STATUS_COLORS[payment.effective_status] ?? STATUS_COLORS["UNKNOWN"];
+  if (!color) throw new Error("Missing status palette");
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: color.fill } };
+  cell.font = { bold: true, color: { argb: color.text } };
+  cell.alignment = { wrapText: true, vertical: "top" };
+  textCell(sheet.getCell(row, column + 1), verificationNote(payment));
+  sheet.getCell(row, column + 1).alignment = { wrapText: true, vertical: "top" };
+}
+
+// Older runs never retained original files. Explicitly recovered sheets contain
+// only stored fields/rows, not invented original headers, formatting or content.
+function recoveredWorkbook(data: ExportData, kind: ExportKind, customers: Map<string, string>) {
+  const book = new ExcelJS.Workbook();
+  book.description = "Recovered from retained import data. Original workbook structure/formatting and unimported content are unavailable. Re-upload originals for source-preserving exports.";
+  if (kind === "payments") {
+    const sheet = book.addWorksheet("Recovered Payment Records");
+    const rows = [...data.payments].sort((a, b) => a.row_index - b.row_index);
+    const sources = rows.map((p) => {
+      const parsed = envelopeSchema.safeParse(p.raw_data);
+      return parsed.success && parsed.data.source && Object.keys(parsed.data.source).length ? parsed.data.source : {
+        Customer: p.customer, Account: p.account, "Billing Period": p.billing_period, Amount: p.amount_decimal,
+        Method: p.method, "Reference #": p.reference_number, "Payment Date": p.payment_date, Notes: p.notes,
+        "Paid By": p.paid_by, "Received By": p.received_by, Photo: p.photo_url, "Created At": p.created_at_source,
+      };
     });
-    textCell(row.getCell(columns.length + 3), linkedCustomers.get(source.row.id) ?? "");
-    row.height = 42;
+    const columns = [...new Set(sources.flatMap((s) => Object.keys(s)))];
+    columns.forEach((key, i) => textCell(sheet.getCell(1, i + 1), key));
+    addHeaders(sheet, 1, columns.length + 1, PAYMENT_ANNOTATIONS);
+    rows.forEach((p, i) => {
+      columns.forEach((key, j) => sourceValue(sheet.getCell(i + 2, j + 1), /^(reference #|reference_number)$/i.test(key) ? p.reference_number : sources[i]?.[key]));
+      annotatePayment(sheet, i + 2, columns.length + 1, p);
+    });
+  } else {
+    const groups = new Map<string, typeof data.gcash>();
+    for (const row of [...data.gcash].sort((a, b) => a.source_order - b.source_order)) {
+      const envelope = envelopeSchema.safeParse(row.raw_data);
+      const name = envelope.success ? envelope.data.sheet_name ?? "Recovered GCash" : "Recovered GCash";
+      groups.set(name, [...(groups.get(name) ?? []), row]);
+    }
+    for (const [name, rows] of groups) {
+      const sheet = book.addWorksheet(name.replace(/[:\\/?*\[\]]/g, "_").slice(0, 31));
+      const cells = rows.map((g) => {
+        const envelope = envelopeSchema.safeParse(g.raw_data);
+        const source = envelope.success ? envelope.data.source : undefined;
+        const preserved = gcashCellsSchema.safeParse(source?.["export_source"]);
+        return preserved.success ? preserved.data : { headers: Object.keys(source ?? { Date: "", Description: "", Reference: "", Amount: "" }), cells: source ? Object.entries(source).map(([key, value]) => key === "ref" ? g.reference_number : value) : [g.transaction_date, g.description, g.reference_number, g.amount_decimal] };
+      });
+      const width = Math.max(1, ...cells.map((r) => Math.max(r.headers.length, r.cells.length)));
+      for (let i = 0; i < width; i++) sourceValue(sheet.getCell(1, i + 1), cells[0]?.headers[i] ?? "");
+      const matches = new Map<number, string>();
+      rows.forEach((g, i) => {
+        cells[i]?.cells.forEach((value, j) => sourceValue(sheet.getCell(i + 2, j + 1), value));
+        const customer = customers.get(g.id);
+        if (customer !== undefined) matches.set(i + 2, customer);
+      });
+      annotateGcashSheet(sheet, 1, width, matches);
+    }
   }
+  sanitizeWorkbook(book);
   return book;
 }
 
-export async function verificationWorkbookBuffer(data: ExportData) {
-  return new Uint8Array(await buildVerificationWorkbook(data).xlsx.writeBuffer());
+export async function buildOperationalWorkbook(data: ExportData, kind: ExportKind): Promise<ExcelJS.Workbook> {
+  const customers = validateSnapshot(data);
+  const source = data.sources?.[kind];
+  if (!source) return recoveredWorkbook(data, kind, customers);
+  const book = await loadSource(source);
+  const seen = new Set<string>();
+  const layouts = new Map<string, { sheet: ExcelJS.Worksheet; column: number; offset: number; header: number; matches: Map<number, string> }>();
+  const first = source.sheets[0];
+  for (const meta of source.sheets) {
+    const sheetRows = kind === "payments" ? (meta === first ? data.payments : []) : data.gcash.filter((g) => envelopeSchema.parse(g.raw_data).sheet_name === meta.name);
+    const hasRecords = kind === "payments" ? meta === first : sheetRows.length > 0;
+    if (!hasRecords) continue;
+    const sheet = book.getWorksheet(meta.name);
+    if (!sheet) throw new Error("Missing retained source worksheet");
+    const column = Math.max(sheet.columnCount, meta.lastColumn) + 1;
+    const firstDataRow = Math.min(...sheetRows.map((row) => row.row_index + meta.rowOffset));
+    // A detected statement header may belong to a later section. Keep every
+    // persisted source row mapped in place; label only the new far-right column
+    // at row 1 when transactions precede that header. If row 1 is itself data,
+    // insert a header row and apply the same explicit offset to every annotation.
+    const annotationHeader = kind === "gcash" ? existingCustomerHeaderRow(sheet) ?? meta.headerRow : meta.headerRow;
+    const lateGcashHeader = kind === "gcash" && annotationHeader !== null && annotationHeader >= firstDataRow;
+    const shift = annotationHeader === null || (lateGcashHeader && firstDataRow === 1) ? 1 : 0;
+    const originalRowCount = sheet.rowCount;
+    if (sheetRows.some((row) => !Number.isInteger(row.row_index) || row.row_index < 1 || row.row_index + meta.rowOffset > originalRowCount)) throw new Error("Invalid original row provenance");
+    if (shift) sheet.insertRow(1, []);
+    const header = shift || lateGcashHeader ? 1 : annotationHeader ?? 1;
+    if (kind === "payments") addHeaders(sheet, header, column, PAYMENT_ANNOTATIONS);
+    layouts.set(meta.name, { sheet, column, offset: meta.rowOffset + shift, header, matches: new Map() });
+  }
+  const rows = kind === "payments" ? data.payments : data.gcash;
+  for (const row of rows) {
+    const envelope = envelopeSchema.parse(row.raw_data);
+    const name = kind === "payments" ? first?.name : envelope.sheet_name;
+    const layout = name ? layouts.get(name) : undefined;
+    if (!layout) throw new Error("Missing original row provenance");
+    const physicalRow = row.row_index + layout.offset;
+    const mapping = `${name}:${physicalRow}`;
+    if (physicalRow <= layout.header || physicalRow > layout.sheet.rowCount || seen.has(mapping)) throw new Error("Invalid or ambiguous original row provenance");
+    seen.add(mapping);
+    if (kind === "payments" && "effective_status" in row) annotatePayment(layout.sheet, physicalRow, layout.column, row);
+    else {
+      const customer = customers.get(row.id);
+      if (customer !== undefined) layout.matches.set(physicalRow, customer);
+    }
+  }
+  if (kind === "gcash") for (const layout of layouts.values()) annotateGcashSheet(layout.sheet, layout.header, layout.column - 1, layout.matches);
+  return book;
+}
+export async function operationalWorkbookBuffer(data: ExportData, kind: ExportKind) {
+  return (await operationalWorkbookExport(data, kind)).buffer;
+}
+export async function operationalWorkbookExport(data: ExportData, kind: ExportKind) {
+  const book = await buildOperationalWorkbook(data, kind);
+  return { buffer: new Uint8Array(await book.xlsx.writeBuffer()), annotationConflicts: kind === "gcash" ? countAnnotationConflicts(book) : 0 };
 }

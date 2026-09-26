@@ -23,34 +23,16 @@ const navItems = [
 ];
 
 export function AuthSidebar({ user, workspaces, activeWorkspaceId }: AuthSidebarProps) {
-  const pathname = usePathname();
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r bg-muted/30 md:flex md:flex-col">
-      <div className="flex h-14 items-center border-b px-4">
+    <aside aria-label="Workspace sidebar" className="hidden w-64 shrink-0 border-r bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex md:h-dvh md:self-start md:flex-col md:overflow-y-auto">
+      <div className="flex min-h-16 shrink-0 items-center border-b px-4">
         <span className="text-sm font-semibold tracking-tight">
           Payment Reconciliation
         </span>
       </div>
 
-      <nav className="flex-1 space-y-1 p-3">
-        {navItems.map((item) => {
-          const isActive = pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="flex-1"><AppNavigation /></div>
 
       <div className="border-t p-4">
         <p className="truncate text-xs text-muted-foreground">{user.email}</p>
@@ -66,4 +48,17 @@ export function AuthSidebar({ user, workspaces, activeWorkspaceId }: AuthSidebar
       </div>
     </aside>
   );
+}
+
+export function AppNavigation({ mobile = false }: { mobile?: boolean }) {
+  const pathname = usePathname();
+  return <nav aria-label={mobile ? "Mobile navigation" : "Main navigation"} className={mobile ? "flex flex-wrap gap-1 md:hidden" : "space-y-1 p-3"}>
+    {navItems.map((item) => {
+      const isActive = pathname.startsWith(item.href) || (item.href === "/history" && pathname.startsWith("/verification/") && !pathname.startsWith("/verification/new"));
+      return <Link key={item.href} href={item.href} aria-current={isActive ? "page" : undefined}
+        className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${isActive ? "bg-primary font-semibold text-primary-foreground underline underline-offset-4" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
+        {item.label}
+      </Link>;
+    })}
+  </nav>;
 }

@@ -105,6 +105,7 @@ test.describe.serial("persisted results and manual review", () => {
     await page.getByRole("row").filter({ hasText: "Duplicate Statement" }).getByRole("link", { name: "Details" }).click();
     await expect(page.getByText("DUPLICATE_REFERENCE", { exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Exact-reference candidates" }).locator("dl")).toHaveCount(2);
+    await expect(page.getByRole("link", { name: "Back to Results" })).toHaveAttribute("href", `/verification/${runA}`);
     await page.getByRole("link", { name: "Back to Results" }).click();
     await page.getByRole("link", { name: "Needs Review (2)", exact: true }).click();
     await expect(page).toHaveURL(/status=NEEDS_REVIEW/);
@@ -163,7 +164,8 @@ test.describe.serial("persisted results and manual review", () => {
     await expect(page.getByRole("region", { name: "Final decision" })).toContainText("Verified");
     await expect(page.getByText("REFERENCE_MATCH", { exact: true })).toBeVisible();
     await page.getByRole("link", { name: "History", exact: true }).click();
-    await expect(page.getByText("review-a-payments.xlsx + review-a-gcash.xlsx")).toBeVisible();
+    await expect(page.getByText("review-a-payments.xlsx", { exact: true })).toBeVisible();
+    await expect(page.getByText("review-a-gcash.xlsx", { exact: true })).toBeVisible();
     await page.getByRole("link", { name: "View Results", exact: true }).click();
     await expectCounts(page, 3, 1);
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
@@ -213,7 +215,7 @@ test.describe.serial("persisted results and manual review", () => {
       await a.goto(`/verification/${runA}`);
       await expect(a.getByText("Page not found", { exact: true })).toBeVisible();
       await a.goto("/history");
-      await expect(a.getByText("No completed verification runs yet in this workspace.")).toBeVisible();
+      await expect(a.getByText("No verification runs yet in this workspace.")).toBeVisible();
       await a.locator("aside").getByRole("button", { name: "Other Workspace A" }).click();
       await a.getByRole("menuitem", { name: /Review Workspace A/ }).click();
       await expect(a.getByRole("link", { name: "View Results", exact: true })).toBeVisible();

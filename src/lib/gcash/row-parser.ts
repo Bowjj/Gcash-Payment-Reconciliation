@@ -87,6 +87,7 @@ function parseConcatenated(value: string): GcashRowParseResult | null {
 export function parseGcashRow(
   rawRow: readonly unknown[],
   formattedRow: readonly unknown[],
+  amountColumns: readonly number[] = [8, 10],
 ): GcashRowParseResult {
   const firstCell = cellText(formattedRow[0]);
   if (isMetadata(firstCell)) return { kind: "skip" };
@@ -109,7 +110,7 @@ export function parseGcashRow(
     return { kind: "error", field: "referenceNumber", message: "Missing reference number" };
   }
 
-  const amountValues = [cellText(formattedRow[8]), cellText(formattedRow[10])].filter(Boolean);
+  const amountValues = amountColumns.map((column) => cellText(formattedRow[column])).filter(Boolean);
   if (amountValues.length !== 1) {
     return {
       kind: "error",

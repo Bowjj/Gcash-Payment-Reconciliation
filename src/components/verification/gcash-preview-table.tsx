@@ -58,7 +58,7 @@ export function GcashPreviewTable({ rows, totalCount }: GcashPreviewTableProps) 
                       <span className="text-muted-foreground">-</span>
                     )}
                     {row.referenceOccurrenceCount > 1 && (
-                      <span className="ml-2 rounded bg-amber-100 px-1 text-amber-800">
+                      <span className="ml-2 rounded bg-amber-100 px-1 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
                         duplicate ×{row.referenceOccurrenceCount}
                       </span>
                     )}
@@ -70,10 +70,10 @@ export function GcashPreviewTable({ rows, totalCount }: GcashPreviewTableProps) 
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                         row.direction === "incoming"
-                          ? "bg-green-100 text-green-800"
+                          ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200"
                           : row.direction === "outgoing"
-                            ? "bg-red-100 text-red-800"
-                            : "bg-gray-100 text-gray-800"
+                            ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+                            : "bg-muted text-foreground"
                       }`}
                     >
                       {row.direction}

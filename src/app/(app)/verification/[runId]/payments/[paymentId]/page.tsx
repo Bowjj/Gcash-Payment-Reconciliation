@@ -61,7 +61,10 @@ export default async function PaymentDetailPage({ params, searchParams }: {
     ["Received By", payment.received_by], ["Created At", displayDate(payment.created_at_source)],
   ];
   return <div className="mx-auto max-w-5xl space-y-6">
-    <header className="space-y-2"><Link href={`/verification/${runId}`} className="text-sm underline">Back to Results</Link>
+    <header className="space-y-3"><Link href={`/verification/${runId}`} className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4"><path d="m15 18-6-6 6-6" /><path d="M9 12h10" /></svg>
+      Back to Results
+    </Link>
       <h1 className="break-words text-2xl font-semibold">Payment Details</h1><p>{workspace.name} · {payment.customer}</p>
     </header>
     <section aria-label="Final decision" className="space-y-2 rounded-xl border p-4"><h2 className="font-semibold">Final Status</h2>

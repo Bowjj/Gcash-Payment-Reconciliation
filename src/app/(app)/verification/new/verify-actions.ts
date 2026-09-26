@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { paymentImportRows, gcashImportRows } from "@/lib/verification/import-rows";
 import { reconcileVerificationRun } from "@/lib/verification/run-reconciliation";
 import type { ReconciliationSummary } from "@/lib/verification/reconcile";
+import { captureSourceWorkbook } from "@/lib/export/source-workbook";
 
 export type VerifyUploadsResult =
   | { success: true; verificationRunId: string; paymentCount: number; gcashCount: number; summary: ReconciliationSummary }
@@ -28,10 +29,20 @@ export async function verifyUploadsAction(formData: FormData): Promise<VerifyUpl
   if (payment.size > 10 * 1024 * 1024 || gcash.size > 10 * 1024 * 1024) {
     return { success: false, error: "Each file must be 10 MB or smaller." };
   }
-  const payments = preparePaymentImport(Buffer.from(await payment.arrayBuffer()));
-  const transactions = prepareGcashImport(Buffer.from(await gcash.arrayBuffer()));
+  const paymentBytes = Buffer.from(await payment.arrayBuffer());
+  const gcashBytes = Buffer.from(await gcash.arrayBuffer());
+  const payments = preparePaymentImport(paymentBytes);
+  const transactions = prepareGcashImport(gcashBytes);
   if (!payments.valid.length || !transactions.valid.length) {
     return { success: false, error: "Both files must contain valid rows. Review the validation messages." };
+  }
+  let paymentSource;
+  let gcashSource;
+  try {
+    paymentSource = captureSourceWorkbook(paymentBytes, "payments");
+    gcashSource = captureSourceWorkbook(gcashBytes, "gcash");
+  } catch {
+    return { success: false, error: "Could not preserve these source workbooks. Each workbook must fit within 500,000 cells." };
   }
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("create_dual_file_import", {
@@ -39,6 +50,8 @@ export async function verifyUploadsAction(formData: FormData): Promise<VerifyUpl
     p_session_id: sessionId,
     p_payments: paymentImportRows(payments, payment.name),
     p_gcash: gcashImportRows(transactions, gcash.name),
+    p_payment_source: paymentSource,
+    p_gcash_source: gcashSource,
   });
   if (error || typeof data !== "string") {
     return { success: false, error: "Could not save both datasets. Retry with the same files." };

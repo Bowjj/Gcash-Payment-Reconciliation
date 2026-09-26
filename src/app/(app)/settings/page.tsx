@@ -2,9 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateWorkspaceForm } from "@/components/workspace/create-workspace-form";
 import { WorkspaceList } from "@/components/workspace/workspace-list";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { DeleteWorkspaceDialog } from "@/components/workspace/delete-workspace-dialog";
 
 export default async function SettingsPage() {
-  const { membership, workspaces } = await getActiveWorkspace();
+  const { workspace, membership, workspaces } = await getActiveWorkspace();
   const activeWorkspaceId = membership?.businessId ?? null;
 
   return (
@@ -40,6 +41,7 @@ export default async function SettingsPage() {
           <CreateWorkspaceForm />
         </CardContent>
       </Card>
+      {workspace && membership?.role === "owner" && <DeleteWorkspaceDialog key={`${workspace.id}:${workspace.name}`} workspace={workspace} />}
     </div>
   );
 }

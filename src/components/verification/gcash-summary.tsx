@@ -42,7 +42,7 @@ export function GcashSummary({
           <CardTitle>Valid</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-semibold text-green-600">{validCount}</p>
+          <p className="text-2xl font-semibold text-green-700 dark:text-green-300">{validCount}</p>
           <p className="text-xs text-muted-foreground">transactions ready</p>
         </CardContent>
       </Card>
@@ -52,10 +52,10 @@ export function GcashSummary({
           <CardTitle>Attention</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-semibold text-amber-600">{errorCount}</p>
+          <p className="text-2xl font-semibold text-amber-700 dark:text-amber-300">{errorCount}</p>
           <p className="text-xs text-muted-foreground">rows need attention</p>
           {duplicateReferenceCount > 0 && (
-            <p className="mt-1 text-xs text-amber-700">
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-200">
               {duplicateReferenceCount} duplicate references across {duplicateTransactionCount} transactions
             </p>
           )}
@@ -77,7 +77,7 @@ export function GcashSummary({
               <span className="font-mono">{outgoingCount}</span>
             </div>
             {unknownDirectionCount > 0 && (
-              <div className="flex justify-between text-amber-600">
+              <div className="flex justify-between text-amber-700 dark:text-amber-300">
                 <span>Unknown</span>
                 <span className="font-mono">{unknownDirectionCount}</span>
               </div>
