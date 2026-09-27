@@ -13,6 +13,7 @@ port = 55323
 port = 55321
 
 [auth]
+signing_keys_path = "env(SUPABASE_AUTH_SIGNING_KEYS_PATH)"
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
