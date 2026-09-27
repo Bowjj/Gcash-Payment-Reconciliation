@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
 import ExcelJS from "exceljs";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 import { exportFixture } from "../fixtures/export";
 
 const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
@@ -19,9 +19,7 @@ let runId = "";
 let businessId = "";
 
 function file(name: string, sheets: { name: string; rows: unknown[][] }[]) {
-  const book = XLSX.utils.book_new();
-  for (const sheet of sheets) XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheet.rows), sheet.name);
-  return { name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: XLSX.write(book, { type: "buffer", bookType: "xlsx" }) };
+  return workbookUpload(name, sheets);
 }
 async function login(page: Page, loginEmail: string) {
   await page.goto("/login");
@@ -62,12 +60,12 @@ test.describe.serial("Excel report download", () => {
     const { error: memberError } = await admin.from("business_members").insert({ business_id: businessId, user_id: readerId, role: "member" });
     if (memberError) throw memberError;
     await page.goto("/verification/new");
-    const payments = file("PAYMENTS.xlsx", [{ name: "Payments", rows: [
+    const payments = await file("PAYMENTS.xlsx", [{ name: "Payments", rows: [
       ["Customer", "Account", "Billing Period", "Amount", "Method", "Reference #", "Payment Date", "Notes", "Paid By", "Received By", "Photo", "Created At"],
       ...fixture.payments.map((p) => [p.customer, p.account, p.billing_period, Number(p.amount_decimal), p.method, p.reference_number, p.payment_date, p.notes, p.paid_by, p.received_by, p.photo_url, p.created_at_source]),
     ] }, { name: "Instructions", rows: [["Keep this original content"]] }]);
     const headers = ["Date and Time", "Account", "Description", "Channel", "Note", "Balance", "REF NO", "Type", "Debit", "Unused", "Credit", "Extra Bank Field"];
-    const gcash = file("GCash.xlsx", ["September", "October"].map((name, index) => ({ name, rows: [headers,
+    const gcash = await file("GCash.xlsx", ["September", "October"].map((name, index) => ({ name, rows: [headers,
       ...fixture.gcash.slice(index * 3, index * 3 + 3).map((g) => ["2026-09-21 08:00 AM", "00001234", g.description, "Original channel", "Original note", "5000", g.reference_number, "Original type", Number(g.amount_decimal), "", "", `Extra ${g.source_order}`]),
     ] })));
     await page.getByRole("region", { name: "Payment Records", exact: true }).locator('input[type="file"]').setInputFiles(payments);

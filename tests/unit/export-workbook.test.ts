@@ -1,5 +1,4 @@
 import ExcelJS from "exceljs";
-import * as XLSX from "xlsx";
 import { beforeAll, describe, expect, test } from "vitest";
 import { buildOperationalWorkbook, exportFilename, operationalWorkbookBuffer, STATUS_COLORS } from "@/lib/export/verification-workbook";
 import { safeText, moneyCell } from "@/lib/export/cells";
@@ -139,7 +138,7 @@ test("duplicate row provenance fails instead of overwriting annotations", async 
   const data = structuredClone(fixture.data); const row = data.payments[1]; if (row) row.row_index = 2;
   await expect(buildOperationalWorkbook(data, "payments")).rejects.toThrow("provenance");
 });
-test("retention captures original bytes exactly", () => expect(captureSourceWorkbook(fixture.paymentBytes, "payments").base64).toBe(fixture.paymentBytes.toString("base64")));
+test("retention captures original bytes exactly", async () => expect((await captureSourceWorkbook(fixture.paymentBytes, "payments")).base64).toBe(fixture.paymentBytes.toString("base64")));
 test.each([7, 1])("GCash transactions starting at row %s before a late header retain source positions and matches", async (startRow) => {
   const data = structuredClone(fixture.data);
   const source = new ExcelJS.Workbook(); const s = source.addWorksheet("GCASH TESTING ");
@@ -154,7 +153,7 @@ test.each([7, 1])("GCash transactions starting at row %s before a late header re
   });
   s.getCell("A149").value = "DATE AND TIME"; s.getCell("G149").value = "REF NO";
   s.getCell("I149").value = "AMOUNT"; s.getCell("A180").value = "Original footer";
-  data.sources = { gcash: captureSourceWorkbook(Buffer.from(await source.xlsx.writeBuffer()), "gcash") };
+  data.sources = { gcash: await captureSourceWorkbook(Buffer.from(await source.xlsx.writeBuffer()), "gcash") };
   expect(data.sources.gcash?.sheets[0]?.headerRow).toBe(149);
   const result = new ExcelJS.Workbook(); await result.xlsx.load((await operationalWorkbookBuffer(data, "gcash")).buffer);
   const output = sheet(result, s.name); const shift = startRow === 1 ? 1 : 0;
@@ -173,11 +172,12 @@ test("source row offsets and a headerless GCash sheet are mapped without rematch
   const sourceP = new ExcelJS.Workbook(); const p = sourceP.addWorksheet("Offset Payments");
   p.getRow(5).getCell(2).value = "Customer"; p.getRow(5).getCell(3).value = "Amount";
   p.getCell("B6").value = "Jake Tirana"; p.getCell("C6").value = 1300;
+  const payment = data.payments[0]; if (payment) payment.row_index = 6;
   const sourceG = new ExcelJS.Workbook(); sourceG.addWorksheet("Headerless").addRow(["0045276500984", 1299]);
   const row = data.gcash[0]; if (row) { row.row_index = 1; row.raw_data = { sheet_name: "Headerless" }; }
   data.sources = {
-    payments: captureSourceWorkbook(Buffer.from(await sourceP.xlsx.writeBuffer()), "payments"),
-    gcash: captureSourceWorkbook(Buffer.from(await sourceG.xlsx.writeBuffer()), "gcash"),
+    payments: await captureSourceWorkbook(Buffer.from(await sourceP.xlsx.writeBuffer()), "payments"),
+    gcash: await captureSourceWorkbook(Buffer.from(await sourceG.xlsx.writeBuffer()), "gcash"),
   };
   const outputP = await buildOperationalWorkbook(data, "payments");
   expect(sheet(outputP, "Offset Payments").getCell("D5").text).toBe("Verification Status");
@@ -187,18 +187,6 @@ test("source row offsets and a headerless GCash sheet are mapped without rematch
   expect(sheet(outputG, "Headerless").getCell("C1").text).toBe("Matched Customer");
   expect(sheet(outputG, "Headerless").getCell("A2").text).toBe("0045276500984");
   expect(sheet(outputG, "Headerless").getCell("C2").text).toBe("Jake Tirana");
-});
-test("legacy XLS input converts to XLSX without losing original values or worksheet name", async () => {
-  const data = structuredClone(fixture.data);
-  const original = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(original, XLSX.utils.aoa_to_sheet([
-    ["Customer", "Amount", "Reference #"], ...data.payments.map((p) => [p.customer, Number(p.amount_decimal), p.reference_number]),
-  ]), "Original XLS");
-  data.sources = { payments: captureSourceWorkbook(XLSX.write(original, { type: "buffer", bookType: "xls" }), "payments") };
-  const result = await buildOperationalWorkbook(data, "payments");
-  expect(sheet(result, "Original XLS").getCell("B2").value).toBe(1300);
-  expect(sheet(result, "Original XLS").getCell("C2").value).toBe("0045276500984");
-  expect(sheet(result, "Original XLS").getCell("D2").text).toBe("VERIFIED");
 });
 test("over-limit data is rejected, not truncated", async () => {
   const data = exportFixture(); data.payments = Array.from({ length: 20001 }, () => data.payments[0]).filter((p) => p !== undefined);

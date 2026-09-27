@@ -28,9 +28,9 @@ export async function weeklyPayments(customer: string, reference: string) {
   return Buffer.from(await book.xlsx.writeBuffer());
 }
 export async function weeklyCycle(bytes: Buffer, customer: string, reference: string) {
-  const prepared = prepareGcashImport(bytes);
+  const prepared = await prepareGcashImport(bytes);
   const pBytes = await weeklyPayments(customer, reference);
-  const pPrepared = preparePaymentImport(pBytes);
+  const pPrepared = await preparePaymentImport(pBytes);
   const fixture = exportFixture(); const template = fixture.payments[0]; if (!template) throw new Error("Missing Payment template");
   const scope = { business_id: fixture.run.business_id, verification_run_id: fixture.run.id };
   // Use the actual import payload shape and a JSON serialization round trip, just
@@ -49,7 +49,7 @@ export async function weeklyCycle(bytes: Buffer, customer: string, reference: st
   const summary = summarizeMatches(matches);
   const data: ExportData = { ...fixture, payments, gcash,
     run: { ...fixture.run, total: summary.total, verified: summary.verified, needs_review: summary.needsReview, cash: summary.cash, bank: summary.bank },
-    sources: { payments: captureSourceWorkbook(pBytes, "payments"), gcash: captureSourceWorkbook(bytes, "gcash") },
+    sources: { payments: await captureSourceWorkbook(pBytes, "payments"), gcash: await captureSourceWorkbook(bytes, "gcash") },
   };
   const output = await operationalWorkbookExport(JSON.parse(JSON.stringify(data)), "gcash");
   const book = new ExcelJS.Workbook(); await book.xlsx.load(output.buffer.buffer);

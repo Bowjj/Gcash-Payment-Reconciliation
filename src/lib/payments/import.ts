@@ -2,8 +2,8 @@ import { parseWorkbook } from "@/lib/excel/parser";
 
 import { validateAndNormalize } from "./schema";
 
-export function preparePaymentImport(buffer: Buffer) {
-  const parsed = parseWorkbook(buffer);
+export async function preparePaymentImport(buffer: Buffer) {
+  const parsed = await parseWorkbook(buffer);
   const validated = validateAndNormalize(parsed.rows);
   return {
     ...validated,

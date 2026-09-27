@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import * as XLSX from "xlsx";
+import { workbookBuffer } from "../fixtures/workbook";
 import { verifyUploadsAction } from "@/app/(app)/verification/new/verify-actions";
 
 const { rpc, workspace } = vi.hoisted(() => ({
@@ -10,21 +10,19 @@ vi.mock("@/lib/auth/workspace", () => ({ getActiveWorkspace: workspace }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ rpc }) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-function file(rows: unknown[][], name: string) {
-  const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Sheet1");
-  return new File([XLSX.write(book, { type: "array", bookType: "xlsx" })], name);
+async function file(rows: unknown[][], name: string) {
+  return new File([new Uint8Array(await workbookBuffer([{ name: "Sheet1", rows }]))], name);
 }
 
-function inputs() {
+async function inputs() {
   const form = new FormData();
   form.set("workspaceId", "active-workspace");
   form.set("sessionId", "10000000-0000-0000-0000-000000000001");
-  form.set("payment", file([
+  form.set("payment", await file([
     ["Customer", "Amount", "Method", "Reference #"],
     ...Array.from({ length: 74 }, (_, i) => [`Customer ${i}`, "1,000.25", "gcash", `000${i}`]),
   ], "payments.xlsx"));
-  form.set("gcash", file([
+  form.set("gcash", await file([
     ["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"],
     ...Array.from({ length: 82 }, (_, i) => ["2026-08-20 08:00 AM", null, "Unspecified transaction", null, null, null, `000${i}`, null, "1,000.25"]),
   ], "gcash.xlsx"));
@@ -46,7 +44,7 @@ beforeEach(() => {
 });
 
 test("reparses original files, atomically imports all rows, then reconciles persisted inputs", async () => {
-  const form = inputs();
+  const form = await inputs();
   form.set("preview", JSON.stringify([{ amount: "999999", business_id: "forged" }]));
   const result = await verifyUploadsAction(form);
   expect(result).toMatchObject({ success: true, paymentCount: 74, gcashCount: 82 });
@@ -67,22 +65,22 @@ test("reparses original files, atomically imports all rows, then reconciles pers
 });
 
 test("rejects a workspace changed in another tab or forged by the client", async () => {
-  const form = inputs();
+  const form = await inputs();
   form.set("workspaceId", "other-business");
   expect(await verifyUploadsAction(form)).toMatchObject({ success: false });
   expect(rpc).not.toHaveBeenCalled();
 });
 
 test.each(["payment", "gcash"])("refuses persistence when %s file is missing", async (key) => {
-  const form = inputs();
+  const form = await inputs();
   form.delete(key);
   expect(await verifyUploadsAction(form)).toMatchObject({ success: false });
   expect(rpc).not.toHaveBeenCalled();
 });
 
 test("rejects corrupted authoritative input despite a claimed valid preview", async () => {
-  const form = inputs();
-  form.set("gcash", file([["Unsupported"], ["Meaningful bad row"]], "bad.xlsx"));
+  const form = await inputs();
+  form.set("gcash", await file([["Unsupported"], ["Meaningful bad row"]], "bad.xlsx"));
   form.set("validCount", "82");
   expect(await verifyUploadsAction(form)).toMatchObject({ success: false });
   expect(rpc).not.toHaveBeenCalled();
@@ -90,12 +88,12 @@ test("rejects corrupted authoritative input despite a claimed valid preview", as
 
 test("failed atomic save is reported without claiming import success", async () => {
   rpc.mockResolvedValue({ data: null, error: { message: "database failure" } });
-  expect(await verifyUploadsAction(inputs())).toMatchObject({ success: false });
+  expect(await verifyUploadsAction(await inputs())).toMatchObject({ success: false });
 });
 
 test("failed reconciliation leaves a resumable saved run and does not report completion", async () => {
   rpc.mockResolvedValueOnce({ data: "run-id", error: null });
   rpc.mockResolvedValueOnce({ data: null, error: { message: "read failed" } });
-  expect(await verifyUploadsAction(inputs())).toMatchObject({ success: false, verificationRunId: "run-id", error: expect.stringContaining("Retry Verify Payments") });
+  expect(await verifyUploadsAction(await inputs())).toMatchObject({ success: false, verificationRunId: "run-id", error: expect.stringContaining("Retry Verify Payments") });
   expect(rpc).toHaveBeenCalledTimes(2);
 });

@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import { loadWorkbook, workbookTraversalBudget, worksheetRows } from "@/lib/excel/workbook";
 
 import { parseGcashRow } from "./row-parser";
 import { annotationColumns } from "./annotations";
@@ -6,34 +6,18 @@ import type { GcashParseIssue, GcashParseResult, GcashParsedRow } from "./types"
 
 export type { GcashParseIssue, GcashParseResult, GcashParsedRow } from "./types";
 
-export function parseGcashWorkbook(buffer: Buffer): GcashParseResult {
-  const workbook = XLSX.read(buffer, {
-    type: "buffer",
-    raw: false,
-    cellDates: false,
-    cellNF: true,
-    cellStyles: false,
-  });
+export async function parseGcashWorkbook(buffer: Buffer): Promise<GcashParseResult> {
+  const workbook = await loadWorkbook(buffer);
+  const budget = workbookTraversalBudget(workbook);
   const rows: GcashParsedRow[] = [];
   const errors: GcashParseIssue[] = [];
   const warnings: GcashParseIssue[] = [];
   const sheetsProcessed: string[] = [];
 
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
-    const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      raw: true,
-      defval: "",
-    });
-    const formattedRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      raw: false,
-      defval: "",
-    });
+  for (const sheet of workbook.worksheets) {
+    const { raw: rawRows, formatted: formattedRows } = worksheetRows(sheet, budget);
     if (rawRows.length === 0) continue;
-    sheetsProcessed.push(sheetName);
+    sheetsProcessed.push(sheet.name);
     const sourceHeaders = formattedRows.find((row) => String(row[0] ?? "").trim().toUpperCase().startsWith("DATE AND TIME")) ?? [];
     const annotations = annotationColumns(formattedRows);
     const excluded = new Set([...annotations.customer, ...annotations.conflict]);
@@ -55,20 +39,20 @@ export function parseGcashWorkbook(buffer: Buffer): GcashParseResult {
         case "skip":
           break;
         case "unsupported":
-          warnings.push({ rowIndex, sheetName, field: "row", message: result.message });
+          warnings.push({ rowIndex, sheetName: sheet.name, field: "row", message: result.message });
           break;
         case "error":
-          errors.push({ rowIndex, sheetName, field: result.field, message: result.message });
+          errors.push({ rowIndex, sheetName: sheet.name, field: result.field, message: result.message });
           break;
         case "transaction":
-          rows.push({ rowIndex, sheetName, ...result.data, raw: {
+          rows.push({ rowIndex, sheetName: sheet.name, ...result.data, raw: {
             ...result.data.raw,
             export_source: { headers: sourceHeaders, cells: formattedRow, reference_column: "col0" in result.data.raw ? null : 6 },
           } });
           if (result.data.warning) {
             warnings.push({
               rowIndex,
-              sheetName,
+              sheetName: sheet.name,
               field: "referenceNumber",
               message: result.data.warning,
             });

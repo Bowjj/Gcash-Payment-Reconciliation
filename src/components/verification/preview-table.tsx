@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCentavos } from "@/lib/money";
+import { proofHref } from "@/lib/verification/review";
 
 interface PreviewRow {
   readonly rowIndex: number;
@@ -43,7 +44,9 @@ export function PreviewTable({ rows, totalCount }: PreviewTableProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const proof = proofHref(row.photoUrl);
+                return (
                 <tr
                   key={row.rowIndex}
                   className="border-b last:border-0"
@@ -83,9 +86,9 @@ export function PreviewTable({ rows, totalCount }: PreviewTableProps) {
                     )}
                   </td>
                   <td className="py-2">
-                    {row.photoUrl ? (
+                    {proof ? (
                       <a
-                        href={row.photoUrl}
+                        href={proof}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-primary underline-offset-4 hover:underline"
@@ -97,7 +100,8 @@ export function PreviewTable({ rows, totalCount }: PreviewTableProps) {
                     )}
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>

@@ -54,7 +54,7 @@ test("real debit and credit populated together remain an error; invalid amounts 
   expect(parseGcashRow(row, row)).toMatchObject({ kind: "error", field: "amount" });
   const book = new ExcelJS.Workbook(); await book.xlsx.load(new Uint8Array(await weeklySource()).buffer);
   const sheet = book.worksheets[0]; if (!sheet) throw new Error("Missing fixture"); sheet.getCell("K2").value = 100;
-  const parsed = prepareGcashImport(Buffer.from(await book.xlsx.writeBuffer()));
+  const parsed = await prepareGcashImport(Buffer.from(await book.xlsx.writeBuffer()));
   expect(parsed.parseErrors).toContainEqual(expect.objectContaining({ rowIndex: 2, message: "Ambiguous debit and credit amounts" }));
 });
 test("existing column before later bank columns is reused and financial/source values remain unchanged", async () => {
@@ -95,6 +95,16 @@ test("new transaction added in later week gains its annotation without changing 
   expect(later.sheet.getCell("G6").value).toBe("0045276500984"); expect(later.sheet.getCell("I6").value).toBe(1299);
   expect(later.matches[0]?.status).toBe("VERIFIED"); expect(later.data.payments[0]?.amount_decimal).toBe("1300.00");
   expect(names(later.sheet)).toEqual(["Existing Customer A", "Existing Customer B", "Carla", ""]);
+});
+test("leading blank rows retain exact GCash rows through parse, persistence payload, and export", async () => {
+  const book = new ExcelJS.Workbook(); const sheet = book.addWorksheet("Weekly GCash");
+  sheet.getRow(5).values = ["Date and Time", "Account", "Description", "Channel", "Note", "Balance", "REF NO", "Type", "Debit"];
+  sheet.getRow(6).values = ["2026-09-26 08:00 AM", "Account", "Cash in via bank", "Channel", "Original note", 5000, "C", "Type", 1299];
+  const result = await weeklyCycle(Buffer.from(await book.xlsx.writeBuffer()), "Carla", "C");
+  expect(result.prepared.valid.map((row) => row.rowIndex)).toEqual([6]);
+  expect(result.data.sources?.["gcash"]?.sheets[0]).toMatchObject({ rowOffset: 4, headerRow: 5 });
+  expect(result.sheet.getCell("J6").text).toBe("Carla");
+  expect(result.sheet.getCell("J10").text).toBe("");
 });
 test("legacy recovered exports also reuse existing annotation cells", async () => {
   const result = await weeklyCycle(await weeklySource(), "Carla", "C");

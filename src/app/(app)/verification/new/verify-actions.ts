@@ -9,6 +9,7 @@ import { paymentImportRows, gcashImportRows } from "@/lib/verification/import-ro
 import { reconcileVerificationRun } from "@/lib/verification/run-reconciliation";
 import type { ReconciliationSummary } from "@/lib/verification/reconcile";
 import { captureSourceWorkbook } from "@/lib/export/source-workbook";
+import { guardSpreadsheetUpload } from "@/lib/excel/upload-guard";
 
 export type VerifyUploadsResult =
   | { success: true; verificationRunId: string; paymentCount: number; gcashCount: number; summary: ReconciliationSummary }
@@ -26,21 +27,27 @@ export async function verifyUploadsAction(formData: FormData): Promise<VerifyUpl
       typeof sessionId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
     return { success: false, error: "Both files and a verification session are required." };
   }
-  if (payment.size > 10 * 1024 * 1024 || gcash.size > 10 * 1024 * 1024) {
-    return { success: false, error: "Each file must be 10 MB or smaller." };
+  const [paymentUpload, gcashUpload] = await Promise.all([guardSpreadsheetUpload(payment), guardSpreadsheetUpload(gcash)]);
+  if (!paymentUpload.success) return { success: false, error: paymentUpload.error };
+  if (!gcashUpload.success) return { success: false, error: gcashUpload.error };
+  let payments;
+  let transactions;
+  try {
+    payments = await preparePaymentImport(paymentUpload.bytes);
+    transactions = await prepareGcashImport(gcashUpload.bytes);
+  } catch {
+    return { success: false, error: "Could not read one or both Excel workbooks." };
   }
-  const paymentBytes = Buffer.from(await payment.arrayBuffer());
-  const gcashBytes = Buffer.from(await gcash.arrayBuffer());
-  const payments = preparePaymentImport(paymentBytes);
-  const transactions = prepareGcashImport(gcashBytes);
   if (!payments.valid.length || !transactions.valid.length) {
     return { success: false, error: "Both files must contain valid rows. Review the validation messages." };
   }
   let paymentSource;
   let gcashSource;
   try {
-    paymentSource = captureSourceWorkbook(paymentBytes, "payments");
-    gcashSource = captureSourceWorkbook(gcashBytes, "gcash");
+    [paymentSource, gcashSource] = await Promise.all([
+      captureSourceWorkbook(paymentUpload.bytes, "payments"),
+      captureSourceWorkbook(gcashUpload.bytes, "gcash"),
+    ]);
   } catch {
     return { success: false, error: "Could not preserve these source workbooks. Each workbook must fit within 500,000 cells." };
   }

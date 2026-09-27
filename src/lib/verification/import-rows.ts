@@ -2,7 +2,7 @@ import type { preparePaymentImport } from "@/lib/payments/import";
 import type { prepareGcashImport } from "@/lib/gcash/import";
 import { centavosToDecimal } from "@/lib/money";
 
-export function paymentImportRows(prepared: ReturnType<typeof preparePaymentImport>, filename: string) {
+export function paymentImportRows(prepared: Awaited<ReturnType<typeof preparePaymentImport>>, filename: string) {
   return prepared.valid.map((r) => ({
     customer: r.customer,
     account: r.account || null,
@@ -21,7 +21,7 @@ export function paymentImportRows(prepared: ReturnType<typeof preparePaymentImpo
   }));
 }
 
-export function gcashImportRows(prepared: ReturnType<typeof prepareGcashImport>, filename: string) {
+export function gcashImportRows(prepared: Awaited<ReturnType<typeof prepareGcashImport>>, filename: string) {
   return prepared.valid.map((r, sourceOrder) => ({
     transaction_date: r.transactionDate || null,
     description: r.description || null,

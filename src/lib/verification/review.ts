@@ -27,7 +27,9 @@ export function canReview(role: string, automated: string) {
   return (role === "owner" || role === "admin") && automated === "NEEDS_REVIEW";
 }
 export function proofHref(value: string | null) {
-  return value && isValidPhotoUrl(value) ? value.trim() : null;
+  if (!value || !isValidPhotoUrl(value)) return null;
+  const url = new URL(value.trim());
+  return url.username || url.password ? null : url.href;
 }
 export function displayMoney(value: string) {
   const parsed = parseCentavos(value);

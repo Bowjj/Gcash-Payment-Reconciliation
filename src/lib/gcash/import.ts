@@ -1,8 +1,8 @@
 import { parseGcashWorkbook } from "./parser";
 import { validateGcashRows } from "./schema";
 
-export function prepareGcashImport(buffer: Buffer) {
-  const parsed = parseGcashWorkbook(buffer);
+export async function prepareGcashImport(buffer: Buffer) {
+  const parsed = await parseGcashWorkbook(buffer);
   const validated = validateGcashRows(parsed.rows);
   return {
     ...validated,

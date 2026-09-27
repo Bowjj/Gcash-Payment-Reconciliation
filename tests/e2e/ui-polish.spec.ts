@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 import { reconcileVerificationRun } from "@/lib/verification/run-reconciliation";
 
 const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
@@ -233,18 +233,12 @@ test.describe("Sprint 6.5 polish", () => {
     await expect(page.getByText("No verification runs yet in this workspace.")).toBeVisible();
     await screenshots(page, "dark-empty-history", info);
     await page.goto("/verification/new");
-    const payment = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(payment, XLSX.utils.aoa_to_sheet([["Customer", "Amount", "Method", "Reference #"], ["Preview Customer", "1300", "gcash", "0045276500984"], ["Unknown Method", "1000", "unrecognized", "X"]]), "Payments");
-    const gcash = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(gcash, XLSX.utils.aoa_to_sheet([["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"],
-      ["2026-09-25 08:00 AM", null, "Cash in via bank", null, null, null, "0045276500984", null, "1299"],
-      ["2026-09-25 08:00 AM", null, "Sent GCash", null, null, null, "0045276500984", null, "1000"]]), "GCash");
     const paymentsPanel = page.getByRole("region", { name: "Payment Records", exact: true });
     const gcashPanel = page.getByRole("region", { name: "GCash Statement", exact: true });
-    await paymentsPanel.locator('input[type="file"]').setInputFiles({ name: "payments.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: XLSX.write(payment, { type: "buffer", bookType: "xlsx" }) });
+    await paymentsPanel.locator('input[type="file"]').setInputFiles(await workbookUpload("payments.xlsx", [{ name: "Payments", rows: [["Customer", "Amount", "Method", "Reference #"], ["Preview Customer", "1300", "gcash", "0045276500984"], ["Unknown Method", "1000", "unrecognized", "X"]] }]));
     await paymentsPanel.getByText("Preview", { exact: true }).click();
     await paymentsPanel.getByText("Validation messages", { exact: true }).click();
-    await gcashPanel.locator('input[type="file"]').setInputFiles({ name: "gcash.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: XLSX.write(gcash, { type: "buffer", bookType: "xlsx" }) });
+    await gcashPanel.locator('input[type="file"]').setInputFiles(await workbookUpload("gcash.xlsx", [{ name: "GCash", rows: [["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"], ["2026-09-25 08:00 AM", null, "Cash in via bank", null, null, null, "0045276500984", null, "1299"], ["2026-09-25 08:00 AM", null, "Sent GCash", null, null, null, "0045276500984", null, "1000"]] }]));
     await gcashPanel.getByText("Preview", { exact: true }).click();
     await screenshots(page, "dark-upload-previews", info);
   });

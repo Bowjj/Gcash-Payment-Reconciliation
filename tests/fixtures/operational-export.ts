@@ -34,7 +34,7 @@ export async function operationalFixture() {
   gcashBook.addWorksheet("Cover").getCell("A1").value = "Original statement cover";
   const paymentBytes = Buffer.from(await paymentBook.xlsx.writeBuffer());
   const gcashBytes = Buffer.from(await gcashBook.xlsx.writeBuffer());
-  data.sources = { payments: captureSourceWorkbook(paymentBytes, "payments"), gcash: captureSourceWorkbook(gcashBytes, "gcash") };
+  data.sources = { payments: await captureSourceWorkbook(paymentBytes, "payments"), gcash: await captureSourceWorkbook(gcashBytes, "gcash") };
   data.run.payment_filename = "Payment Testing.xlsx"; data.run.gcash_filename = "Gcash Testing.xlsx";
   return { data, paymentBook, gcashBook, paymentBytes, gcashBytes };
 }

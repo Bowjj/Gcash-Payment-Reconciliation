@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 
 const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
 const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
@@ -25,9 +25,7 @@ async function login(page: Page, email: string) {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 function excel(name: string, rows: unknown[][]) {
-  const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Source Sheet");
-  return { name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: XLSX.write(book, { type: "buffer", bookType: "xlsx" }) };
+  return workbookUpload(name, [{ name: "Source Sheet", rows }]);
 }
 async function uploadRun(page: Page, prefix: string) {
   const paymentRows: unknown[][] = [
@@ -48,9 +46,9 @@ async function uploadRun(page: Page, prefix: string) {
   await page.goto("/verification/new");
   const payment = page.getByRole("region", { name: "Payment Records", exact: true });
   const gcash = page.getByRole("region", { name: "GCash Statement", exact: true });
-  await payment.locator('input[type="file"]').setInputFiles(excel(`${prefix}-payments.xlsx`, paymentRows));
+  await payment.locator('input[type="file"]').setInputFiles(await excel(`${prefix}-payments.xlsx`, paymentRows));
   await expect(payment.getByText("Preview", { exact: true })).toBeVisible();
-  await gcash.locator('input[type="file"]').setInputFiles(excel(`${prefix}-gcash.xlsx`, gcashRows));
+  await gcash.locator('input[type="file"]').setInputFiles(await excel(`${prefix}-gcash.xlsx`, gcashRows));
   await page.getByRole("button", { name: "Verify Payments" }).click();
   await expect(page.getByText("Verification Complete", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "View Results", exact: true }).click();

@@ -57,6 +57,9 @@ test.each(["http://example.com/proof", "https://example.com/proof"])("valid proo
 test.each([null, "", "javascript:alert(1)", "data:text/html,hi", "//example.com", "bad url"])("invalid proof %s is not clickable", (url) => {
   expect(proofHref(url)).toBeNull();
 });
+test("proof links do not permit embedded credentials", () => {
+  expect(proofHref("https://user:secret@example.com/proof")).toBeNull();
+});
 const rows = [
   { customer: "Shara Villariasa", reference_number: "0000123", effective_status: "NEEDS_REVIEW" },
   { customer: "Shara Verified", reference_number: "ABC123", effective_status: "VERIFIED" },

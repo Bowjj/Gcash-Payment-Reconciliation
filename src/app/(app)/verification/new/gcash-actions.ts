@@ -3,6 +3,7 @@
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { prepareGcashImport } from "@/lib/gcash/import";
 import { gcashImportRows } from "@/lib/verification/import-rows";
+import { guardSpreadsheetUpload } from "@/lib/excel/upload-guard";
 
 export interface GcashUploadParseResult {
   readonly success: boolean;
@@ -43,7 +44,14 @@ export async function parseGcashUploadAction(
     };
   }
 
-  const result = prepareGcashImport(Buffer.from(await file.arrayBuffer()));
+  const upload = await guardSpreadsheetUpload(file);
+  if (!upload.success) return { success: false, errors: [{ rowIndex: 0, field: "file", message: upload.error }] };
+  let result;
+  try {
+    result = await prepareGcashImport(upload.bytes);
+  } catch {
+    return { success: false, errors: [{ rowIndex: 0, field: "file", message: "Could not read this GCash workbook." }] };
+  }
 
   if (result.valid.length === 0) {
     return {
@@ -89,7 +97,14 @@ export async function confirmGcashImportAction(
   if (!(file instanceof File) || typeof verificationRunId !== "string") {
     return { success: false, error: "GCash file and verification run are required." };
   }
-  const prepared = prepareGcashImport(Buffer.from(await file.arrayBuffer()));
+  const upload = await guardSpreadsheetUpload(file);
+  if (!upload.success) return { success: false, error: upload.error };
+  let prepared;
+  try {
+    prepared = await prepareGcashImport(upload.bytes);
+  } catch {
+    return { success: false, error: "Could not read this GCash workbook." };
+  }
   if (prepared.valid.length === 0) {
     return { success: false, error: "The GCash file has no valid transactions to import." };
   }
@@ -129,7 +144,7 @@ export async function confirmGcashImportAction(
   if (insertError) {
     return {
       success: false,
-      error: `Failed to insert GCash transactions: ${insertError.message}`,
+      error: "Could not save GCash transactions. Please try again.",
     };
   }
 

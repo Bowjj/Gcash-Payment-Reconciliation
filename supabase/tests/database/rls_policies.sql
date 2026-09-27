@@ -106,17 +106,17 @@ select throws_ok(
   $$update public.payments
     set verification_run_id = 'b2000000-0000-0000-0000-000000000002'
     where id = 'a3000000-0000-0000-0000-000000000001'$$,
-  23503,
+  42501,
   null,
-  'payment cannot be moved to another business run'
+  'direct payment updates are denied'
 );
 select throws_ok(
   $$update public.gcash_transactions
     set verification_run_id = 'b2000000-0000-0000-0000-000000000002'
     where id = 'a4000000-0000-0000-0000-000000000001'$$,
-  23503,
+  42501,
   null,
-  'GCash transaction cannot be moved to another business run'
+  'direct GCash updates are denied'
 );
 select throws_ok(
   $$select public.create_payment_import(
@@ -156,10 +156,12 @@ select is(
   0::bigint,
   'Bob cannot read Business A GCash transactions'
 );
-select is_empty(
+select throws_ok(
   $$update public.payments set notes = 'unauthorized'
-    where id = 'a3000000-0000-0000-0000-000000000001' returning id$$,
-  'Bob cannot modify Business A payments'
+    where id = 'a3000000-0000-0000-0000-000000000001'$$,
+  42501,
+  null,
+  'Bob cannot directly modify Business A payments'
 );
 select is_empty(
   $$delete from public.gcash_transactions

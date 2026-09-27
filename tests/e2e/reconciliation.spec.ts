@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 
 const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
 const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
@@ -14,9 +14,7 @@ const password = "Local-reconciliation-123";
 let userId = "";
 
 function excel(name: string, rows: unknown[][]) {
-  const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Original Sheet");
-  return { name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: XLSX.write(book, { type: "buffer", bookType: "xlsx" }) };
+  return workbookUpload(name, [{ name: "Original Sheet", rows }]);
 }
 
 test.beforeAll(async () => {
@@ -46,7 +44,7 @@ test("exact-reference reconciliation, amount difference, safe ambiguities and su
   if (businessError) throw businessError;
   await page.goto("/verification/new");
   await expect(page.locator("main").getByText("Reconciliation Business", { exact: true })).toBeVisible();
-  const payments = excel("payments.xlsx", [
+  const payments = await excel("payments.xlsx", [
     ["Customer", "Amount", "Method", "Reference #"],
     ["Jake Tirana", "1000", "GCASH", "0045276500984"],
     ["Different Amount Customer", "1300", "GCASH", "ABC123456"],
@@ -63,7 +61,7 @@ test("exact-reference reconciliation, amount difference, safe ambiguities and su
     ["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"],
     ...[["0045276500984", "1000"], ["ABC123456", "1299"], ["DUP-G", "1000"], ["DUP-G", "999"], ["DUP-P", "1000"], ["0000203966985", "1000"], ["UNMATCHED", "50"]].map(([ref, amount]) => ["2026-09-21 08:00 AM", null, "Original transaction description", null, null, null, ref, null, amount]),
   ];
-  const gcash = excel("gcash.xlsx", gcashRows);
+  const gcash = await excel("gcash.xlsx", gcashRows);
   const paymentPanel = page.getByRole("region", { name: "Payment Records", exact: true });
   const gcashPanel = page.getByRole("region", { name: "GCash Statement", exact: true });
   await paymentPanel.locator('input[type="file"]').setInputFiles(payments);

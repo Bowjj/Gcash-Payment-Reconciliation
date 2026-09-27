@@ -1,5 +1,5 @@
-import * as XLSX from "xlsx";
 import { z } from "zod";
+import { loadWorkbook, workbookTraversalBudget, worksheetRows } from "@/lib/excel/workbook";
 
 export const sourceWorkbookSchema = z.object({
   version: z.literal(1), base64: z.string().max(14_000_000),
@@ -11,17 +11,18 @@ export const sourceWorkbookSchema = z.object({
 export type SourceWorkbook = z.infer<typeof sourceWorkbookSchema>;
 export type ExportKind = "payments" | "gcash";
 
-export function captureSourceWorkbook(bytes: Buffer, kind: ExportKind): SourceWorkbook {
-  const book = XLSX.read(bytes, { type: "buffer", cellNF: true });
-  let cells = 0;
-  const sheets = book.SheetNames.map((name) => {
-    const sheet = book.Sheets[name];
-    const range = XLSX.utils.decode_range(sheet?.["!ref"] ?? "A1");
-    cells += (range.e.r + 1) * (range.e.c + 3);
-    if (cells > 500000 || range.e.c > 16381) throw new Error("Source workbook exceeds the 500,000-cell export limit.");
-    const rows: unknown[][] = sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) : [];
-    const header = kind === "payments" ? 0 : rows.findIndex((row) => String(row[0] ?? "").trim().toUpperCase().startsWith("DATE AND TIME"));
-    return { name, rowOffset: range.s.r, headerRow: header < 0 ? null : range.s.r + header + 1, lastColumn: range.e.c + 1 };
+export async function captureSourceWorkbook(bytes: Buffer, kind: ExportKind): Promise<SourceWorkbook> {
+  const book = await loadWorkbook(bytes);
+  const budget = workbookTraversalBudget(book);
+  const sheets = book.worksheets.map((sheet) => {
+    const { raw, formatted: rows } = worksheetRows(sheet, budget);
+    const occupied = raw.flatMap((row, rowIndex) => row.flatMap((value, columnIndex) => value === "" ? [] : [[rowIndex, columnIndex] as const]));
+    const firstRow = occupied.length ? Math.min(...occupied.map(([row]) => row)) : 0;
+    const lastColumn = Math.max(...occupied.map(([, column]) => column + 1), 1);
+    const header = kind === "payments"
+      ? rows.findIndex((row) => row.some((value) => String(value).trim()))
+      : rows.findIndex((row) => String(row[0] ?? "").trim().toUpperCase().startsWith("DATE AND TIME"));
+    return { name: sheet.name, rowOffset: firstRow, headerRow: header < 0 ? null : header + 1, lastColumn };
   });
   return { version: 1, base64: bytes.toString("base64"), sheets };
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 
 const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
 const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
@@ -14,18 +14,16 @@ const password = "Dual-upload-test-123";
 let userId = "";
 let businessId = "";
 
-function workbook(kind: "payment" | "gcash", name: string, count: number) {
+async function workbook(kind: "payment" | "gcash", name: string, count: number) {
   const rows = kind === "payment"
     ? [["Customer", "Amount", "Method", "Reference #"], ...Array.from({ length: count }, (_, i) => [`${name} ${i}`, "100.25", "gcash", `000${i}`])]
     : [["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"], ...Array.from({ length: count }, (_, i) => ["2026-08-20 08:00 AM", null, name, null, null, null, `000${i}`, null, "100.25"])];
-  const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Sheet1");
-  return { name: `${name}.xlsx`, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: XLSX.write(book, { type: "buffer", bookType: "xlsx" }) };
+  return workbookUpload(`${name}.xlsx`, [{ name: "Sheet1", rows }]);
 }
 
 async function upload(page: Page, kind: "payment" | "gcash", name: string, count: number) {
   const panel = page.getByRole("region", { name: kind === "payment" ? "Payment Records" : "GCash Statement", exact: true });
-  await panel.locator('input[type="file"]').setInputFiles(workbook(kind, name, count));
+  await panel.locator('input[type="file"]').setInputFiles(await workbook(kind, name, count));
   await expect(panel.getByText("Preview", { exact: true })).toBeVisible();
 }
 

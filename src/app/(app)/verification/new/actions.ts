@@ -3,6 +3,7 @@
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { paymentImportRows } from "@/lib/verification/import-rows";
 import { preparePaymentImport } from "@/lib/payments/import";
+import { guardSpreadsheetUpload } from "@/lib/excel/upload-guard";
 
 export interface UploadParseResult {
   readonly success: boolean;
@@ -41,7 +42,14 @@ export async function parseUploadAction(
     return { success: false, errors: [{ rowIndex: 0, field: "file", message: "No file provided" }] };
   }
 
-  const result = preparePaymentImport(Buffer.from(await file.arrayBuffer()));
+  const upload = await guardSpreadsheetUpload(file);
+  if (!upload.success) return { success: false, errors: [{ rowIndex: 0, field: "file", message: upload.error }] };
+  let result;
+  try {
+    result = await preparePaymentImport(upload.bytes);
+  } catch {
+    return { success: false, errors: [{ rowIndex: 0, field: "file", message: "Could not read this payment workbook." }] };
+  }
 
   if (result.missingHeaders.length > 0 && result.valid.length === 0) {
     return {
@@ -93,7 +101,14 @@ export async function confirmImportAction(
     return { success: false, error: "No payment file provided." };
   }
 
-  const prepared = preparePaymentImport(Buffer.from(await file.arrayBuffer()));
+  const upload = await guardSpreadsheetUpload(file);
+  if (!upload.success) return { success: false, error: upload.error };
+  let prepared;
+  try {
+    prepared = await preparePaymentImport(upload.bytes);
+  } catch {
+    return { success: false, error: "Could not read this payment workbook." };
+  }
   if (prepared.missingHeaders.length > 0 && prepared.valid.length === 0) {
     return { success: false, error: "The payment file is missing required headers." };
   }
@@ -125,7 +140,7 @@ export async function confirmImportAction(
   if (insertError || typeof verificationRunId !== "string") {
     return {
       success: false,
-      error: `Failed to insert payments: ${insertError?.message ?? "No verification run was returned"}`,
+      error: "Could not save payments. Please try again.",
     };
   }
 

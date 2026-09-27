@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import * as XLSX from "xlsx";
+import { workbookBuffer } from "../fixtures/workbook";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
 import { captureSourceWorkbook } from "@/lib/export/source-workbook";
@@ -32,9 +32,8 @@ async function openConfirmation(page: Page) {
   await dialog.getByRole("button", { name: "Continue", exact: true }).click();
   return dialog;
 }
-function source(rows: unknown[][], kind: "payments" | "gcash") {
-  const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Sheet1");
-  return captureSourceWorkbook(XLSX.write(book, { type: "buffer", bookType: "xlsx" }), kind);
+async function source(rows: unknown[][], kind: "payments" | "gcash") {
+  return captureSourceWorkbook(await workbookBuffer([{ name: "Sheet1", rows }]), kind);
 }
 test.describe("Settings workspace deletion", () => {
   test.setTimeout(120000);
@@ -60,8 +59,8 @@ test.describe("Settings workspace deletion", () => {
         p_business_id: businessId, p_session_id: randomUUID(),
         p_payments: [{ customer: "Manual", amount: "1300", method: "GCASH", reference_number: "NOT-FOUND", row_index: 2, raw_data: { filename: "Payment.xlsx" } }],
         p_gcash: [{ amount: "1299", reference_number: "0045276500984", direction: "incoming", reference_occurrence_count: 1, row_index: 2, raw_data: { filename: "GCash.xlsx", sheet_name: "Sheet1" } }],
-        p_payment_source: source([["Customer", "Amount", "Method", "Reference #"], ["Manual", 1300, "GCash", "NOT-FOUND"]], "payments"),
-        p_gcash_source: source([["Date and Time", "", "Description", "", "", "", "REF NO", "", "AMOUNT"], ["2026-09-26 08:00 AM", "", "Transfer", "", "", "", "0045276500984", "", 1299]], "gcash"),
+        p_payment_source: await source([["Customer", "Amount", "Method", "Reference #"], ["Manual", 1300, "GCash", "NOT-FOUND"]], "payments"),
+        p_gcash_source: await source([["Date and Time", "", "Description", "", "", "", "REF NO", "", "AMOUNT"], ["2026-09-26 08:00 AM", "", "Transfer", "", "", "", "0045276500984", "", 1299]], "gcash"),
       }); if (imported.error || typeof imported.data !== "string") throw imported.error ?? new Error("Import failed");
       runs.push(imported.data); await reconcileVerificationRun(client, businessId, imported.data);
       const payment = await db.from("payments").select("id").eq("verification_run_id", imported.data).single(); if (payment.error) throw payment.error;

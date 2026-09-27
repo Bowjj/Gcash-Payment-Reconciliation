@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import { loadWorkbook, workbookTraversalBudget, worksheetRows } from "./workbook";
 
 import {
   buildColumnMap,
@@ -58,35 +58,19 @@ function emptyResult(
   };
 }
 
-export function parseWorkbook(buffer: Buffer): ParseResult {
-  const workbook = XLSX.read(buffer, {
-    type: "buffer",
-    raw: true,
-    cellDates: false,
-    cellNF: false,
-    cellStyles: false,
-  });
+export async function parseWorkbook(buffer: Buffer): Promise<ParseResult> {
+  const workbook = await loadWorkbook(buffer);
+  const budget = workbookTraversalBudget(workbook);
 
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return emptyResult("Workbook has no sheets");
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return emptyResult("Workbook has no sheets");
 
-  const sheet = workbook.Sheets[sheetName];
-  if (!sheet) return emptyResult("Sheet is empty");
-
-  const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    raw: true,
-    defval: "",
-  });
-  const formattedRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    raw: false,
-    defval: "",
-  });
+  const { raw: rawRows, formatted: formattedRows } = worksheetRows(sheet, budget);
 
   if (rawRows.length === 0) return emptyResult("Sheet is empty");
 
-  const headerRow = formattedRows[0];
+  const headerIndex = formattedRows.findIndex((row) => row.some((value) => cellToString(value) !== ""));
+  const headerRow = formattedRows[headerIndex];
   if (!headerRow) return emptyResult("No header row found", { field: "headers" });
 
   const rawHeaders = headerRow.map(cellToString);
@@ -99,8 +83,8 @@ export function parseWorkbook(buffer: Buffer): ParseResult {
     );
   }
 
-  const dataRows = rawRows.slice(1);
-  const formattedDataRows = formattedRows.slice(1);
+  const dataRows = rawRows.slice(headerIndex + 1);
+  const formattedDataRows = formattedRows.slice(headerIndex + 1);
   const rows: ParsedRow[] = [];
   const errors: { rowIndex: number; field: string; message: string }[] = [];
   const warnings: { rowIndex: number; field: string; message: string }[] = [];
@@ -118,7 +102,7 @@ export function parseWorkbook(buffer: Buffer): ParseResult {
     const isBlank = Object.values(rowData).every((v) => v === "");
     if (isBlank) continue;
 
-    const excelRowIndex = i + 2;
+    const excelRowIndex = headerIndex + i + 2;
     const rawRecord: Record<string, unknown> = {};
 
     if (referenceColumn) {

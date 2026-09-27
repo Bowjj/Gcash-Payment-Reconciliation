@@ -1,5 +1,4 @@
 import ExcelJS from "exceljs";
-import * as XLSX from "xlsx";
 import { z } from "zod";
 import { proofHref } from "@/lib/verification/review";
 import { textCell } from "./cells";
@@ -86,14 +85,8 @@ async function loadSource(source: SourceWorkbook) {
   const bytes = Buffer.from(source.base64, "base64");
   if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new ExportLimitError("Invalid retained source size.");
   const book = new ExcelJS.Workbook();
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    await book.xlsx.load(new Uint8Array(bytes).buffer);
-  } else {
-    // ExcelJS reads XLSX; SheetJS converts legacy XLS values/layouts to XLSX.
-    const legacy = XLSX.read(bytes, { type: "buffer", cellStyles: true, cellNF: true });
-    const converted: Buffer = XLSX.write(legacy, { type: "buffer", bookType: "xlsx", cellStyles: true });
-    await book.xlsx.load(new Uint8Array(converted).buffer);
-  }
+  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error("Retained source workbook is not an XLSX file.");
+  await book.xlsx.load(new Uint8Array(bytes).buffer);
   sanitizeWorkbook(book);
   return book;
 }
@@ -188,7 +181,7 @@ export async function buildOperationalWorkbook(data: ExportData, kind: ExportKin
     const sheet = book.getWorksheet(meta.name);
     if (!sheet) throw new Error("Missing retained source worksheet");
     const column = Math.max(sheet.columnCount, meta.lastColumn) + 1;
-    const firstDataRow = Math.min(...sheetRows.map((row) => row.row_index + meta.rowOffset));
+    const firstDataRow = Math.min(...sheetRows.map((row) => row.row_index));
     // A detected statement header may belong to a later section. Keep every
     // persisted source row mapped in place; label only the new far-right column
     // at row 1 when transactions precede that header. If row 1 is itself data,
@@ -196,12 +189,13 @@ export async function buildOperationalWorkbook(data: ExportData, kind: ExportKin
     const annotationHeader = kind === "gcash" ? existingCustomerHeaderRow(sheet) ?? meta.headerRow : meta.headerRow;
     const lateGcashHeader = kind === "gcash" && annotationHeader !== null && annotationHeader >= firstDataRow;
     const shift = annotationHeader === null || (lateGcashHeader && firstDataRow === 1) ? 1 : 0;
-    const originalRowCount = sheet.rowCount;
-    if (sheetRows.some((row) => !Number.isInteger(row.row_index) || row.row_index < 1 || row.row_index + meta.rowOffset > originalRowCount)) throw new Error("Invalid original row provenance");
+    if (sheetRows.some((row) => !Number.isInteger(row.row_index) || row.row_index < 1)) throw new Error("Invalid original row provenance");
     if (shift) sheet.insertRow(1, []);
     const header = shift || lateGcashHeader ? 1 : annotationHeader ?? 1;
     if (kind === "payments") addHeaders(sheet, header, column, PAYMENT_ANNOTATIONS);
-    layouts.set(meta.name, { sheet, column, offset: meta.rowOffset + shift, header, matches: new Map() });
+    // Parsed row indexes are absolute Excel rows. rowOffset describes the used
+    // range for source metadata, not an adjustment to persisted provenance.
+    layouts.set(meta.name, { sheet, column, offset: shift, header, matches: new Map() });
   }
   const rows = kind === "payments" ? data.payments : data.gcash;
   for (const row of rows) {

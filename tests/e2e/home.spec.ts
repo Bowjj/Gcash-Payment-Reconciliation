@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 
 const email = `e2e-${randomUUID()}@example.com`;
 const password = "Local-e2e-password-123";
@@ -72,31 +72,20 @@ test("creates a workspace via onboarding then imports every payment and GCash ro
   const gcashPanel = page.getByRole("region", { name: "GCash Statement", exact: true });
   await expect(page.getByRole("button", { name: "Verify Payments" })).toBeDisabled();
 
-  const paymentWorkbook = XLSX.utils.book_new();
   const paymentRows: (string | number)[][] = [
     ["Customer", "Amount", "Method", "Reference #"],
   ];
   for (let index = 0; index < 75; index++) {
     paymentRows.push([`Customer ${index}`, "1,000.00", "gcash", `PAY${index}`]);
   }
-  XLSX.utils.book_append_sheet(
-    paymentWorkbook,
-    XLSX.utils.aoa_to_sheet(paymentRows),
-    "Payments",
-  );
   const paymentChooserPromise = page.waitForEvent("filechooser");
   await paymentPanel.getByRole("button", { name: "Choose file" }).click();
   const paymentChooser = await paymentChooserPromise;
-  await paymentChooser.setFiles({
-    name: "payments.xlsx",
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    buffer: XLSX.write(paymentWorkbook, { type: "buffer", bookType: "xlsx" }),
-  });
+  await paymentChooser.setFiles(await workbookUpload("payments.xlsx", [{ name: "Payments", rows: paymentRows }]));
   await paymentPanel.getByText("Preview", { exact: true }).click();
   await expect(page.getByText("Preview (50 of 75 rows)")).toBeVisible();
   await expect(page.getByRole("button", { name: "Verify Payments" })).toBeDisabled();
 
-  const gcashWorkbook = XLSX.utils.book_new();
   const gcashRows: unknown[][] = [
     ["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"],
   ];
@@ -113,19 +102,10 @@ test("creates a workspace via onboarding then imports every payment and GCash ro
       "1,000.00",
     ]);
   }
-  XLSX.utils.book_append_sheet(
-    gcashWorkbook,
-    XLSX.utils.aoa_to_sheet(gcashRows),
-    "GCash",
-  );
   const gcashChooserPromise = page.waitForEvent("filechooser");
   await gcashPanel.getByRole("button", { name: "Choose file" }).click();
   const gcashChooser = await gcashChooserPromise;
-  await gcashChooser.setFiles({
-    name: "gcash.xlsx",
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    buffer: XLSX.write(gcashWorkbook, { type: "buffer", bookType: "xlsx" }),
-  });
+  await gcashChooser.setFiles(await workbookUpload("gcash.xlsx", [{ name: "GCash", rows: gcashRows }]));
 
   await gcashPanel.getByText("Preview", { exact: true }).click();
   await expect(page.getByText("Preview (50 of 75 transactions)")).toBeVisible();

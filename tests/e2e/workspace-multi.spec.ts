@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
-import * as XLSX from "xlsx";
+import { workbookUpload } from "../fixtures/workbook";
 
 const userAEmail = `ws-a-${randomUUID()}@example.com`;
 const userBEmail = `ws-b-${randomUUID()}@example.com`;
@@ -79,7 +79,6 @@ async function importPaymentsAndGcash(
 ) {
   const paymentPanel = page.getByRole("region", { name: "Payment Records", exact: true });
   const gcashPanel = page.getByRole("region", { name: "GCash Statement", exact: true });
-  const paymentWorkbook = XLSX.utils.book_new();
   const paymentRows: (string | number)[][] = [
     ["Customer", "Amount", "Method", "Reference #"],
   ];
@@ -91,25 +90,15 @@ async function importPaymentsAndGcash(
       `${prefix}P${index}`,
     ]);
   }
-  XLSX.utils.book_append_sheet(
-    paymentWorkbook,
-    XLSX.utils.aoa_to_sheet(paymentRows),
-    "Payments",
-  );
 
   const paymentChooserPromise = page.waitForEvent("filechooser");
   await paymentPanel.getByRole("button", { name: "Choose file" }).click();
   const paymentChooser = await paymentChooserPromise;
-  await paymentChooser.setFiles({
-    name: "payments.xlsx",
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    buffer: XLSX.write(paymentWorkbook, { type: "buffer", bookType: "xlsx" }),
-  });
+  await paymentChooser.setFiles(await workbookUpload("payments.xlsx", [{ name: "Payments", rows: paymentRows }]));
 
   await paymentPanel.getByText("Preview", { exact: true }).click();
   await expect(page.getByText(new RegExp(`Preview \\(\\d+ of ${count} rows\\)`))).toBeVisible();
 
-  const gcashWorkbook = XLSX.utils.book_new();
   const gcashRows: unknown[][] = [
     ["Date and Time", null, "ACCOUNTS TO", null, null, null, "REF NO", null, "AMOUNT"],
   ];
@@ -126,20 +115,11 @@ async function importPaymentsAndGcash(
       "1,000.00",
     ]);
   }
-  XLSX.utils.book_append_sheet(
-    gcashWorkbook,
-    XLSX.utils.aoa_to_sheet(gcashRows),
-    "GCash",
-  );
 
   const gcashChooserPromise = page.waitForEvent("filechooser");
   await gcashPanel.getByRole("button", { name: "Choose file" }).click();
   const gcashChooser = await gcashChooserPromise;
-  await gcashChooser.setFiles({
-    name: "gcash.xlsx",
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    buffer: XLSX.write(gcashWorkbook, { type: "buffer", bookType: "xlsx" }),
-  });
+  await gcashChooser.setFiles(await workbookUpload("gcash.xlsx", [{ name: "GCash", rows: gcashRows }]));
 
   await gcashPanel.getByText("Preview", { exact: true }).click();
   await expect(
