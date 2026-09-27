@@ -1,0 +1,3 @@
+# Production configuration must come only from Vercel environment variables.
+.env
+.env.*
