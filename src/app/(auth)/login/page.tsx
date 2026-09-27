@@ -6,7 +6,7 @@ import { ThemeControl } from "@/components/theme/theme-control";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
-  title: "Login - Payment Reconciliation",
+  title: "Login - VeriPay",
 };
 
 export default function LoginPage() {
@@ -16,7 +16,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-xl font-semibold tracking-tight">
-            Payment Reconciliation
+            VeriPay
           </CardTitle>
           <p className="text-sm text-muted-foreground">
             Sign in to your workspace

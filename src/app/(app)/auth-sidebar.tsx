@@ -28,7 +28,7 @@ export function AuthSidebar({ user, workspaces, activeWorkspaceId }: AuthSidebar
     <aside aria-label="Workspace sidebar" className="hidden w-64 shrink-0 border-r bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex md:h-dvh md:self-start md:flex-col md:overflow-y-auto">
       <div className="flex min-h-16 shrink-0 items-center border-b px-4">
         <span className="text-sm font-semibold tracking-tight">
-          Payment Reconciliation
+          VeriPay
         </span>
       </div>
 

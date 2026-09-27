@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Payment Reconciliation",
-  description: "Excel payment reconciliation workspace",
+  title: "VeriPay — Payment Reconciliation & Verification System",
+  description: "VeriPay is an Excel payment reconciliation and verification workspace.",
 };
 
 export default function RootLayout({

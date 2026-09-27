@@ -1,4 +1,4 @@
-# Payment Reconciliation & Verification System
+# VeriPay — Payment Reconciliation & Verification System
 
 A production-quality web application for reconciling customer payment records against GCash transaction statements.
 

@@ -43,7 +43,7 @@ test.afterAll(async () => {
 test("redirects unauthenticated users to login", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("Payment Reconciliation")).toBeVisible();
+  await expect(page.getByText("VeriPay")).toBeVisible();
 });
 
 test("creates a workspace via onboarding then imports every payment and GCash row beyond the preview limit", async ({ page }) => {

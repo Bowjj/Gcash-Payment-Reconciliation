@@ -28,7 +28,7 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="space-y-3 border-b bg-card px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm font-semibold md:hidden">Payment Reconciliation</span>
+            <span className="text-sm font-semibold md:hidden">VeriPay</span>
             <span className="hidden text-sm text-muted-foreground md:inline">Payment workspace</span>
             <ThemeControl />
           </div>
